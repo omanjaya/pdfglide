@@ -90,6 +90,12 @@ export function Header() {
               </div>
             </div>
           ))}
+          <Link
+            href="/blog"
+            className="px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground rounded-md hover:bg-accent"
+          >
+            Blog
+          </Link>
         </div>
 
         {/* Mobile Menu Button */}
@@ -143,6 +149,13 @@ export function Header() {
                 )}
               </div>
             ))}
+            <Link
+              href="/blog"
+              className="block py-2 text-sm font-medium"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Blog
+            </Link>
           </div>
         </div>
       )}

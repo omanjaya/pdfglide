@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+  # PostgreSQL Database (internal only - no public port)
   postgres:
     image: postgres:16-alpine
     container_name: fileforge-db
@@ -12,26 +12,24 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-pdfglide}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # SECURITY: Removed public port - only accessible within Docker network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # Redis for Queue and Caching
+  # Redis for Queue and Caching (internal only - no public port)
   redis:
     image: redis:7-alpine
     container_name: fileforge-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redisSecure2026}
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
+    # SECURITY: Removed public port - only accessible within Docker network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redisSecure2026}", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -59,17 +57,16 @@ services:
       - RATE_LIMIT_PER_MINUTE=60
       - RATE_LIMIT_PER_HOUR=1000
       # Celery & Redis
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
       - ENABLE_ASYNC_PROCESSING=true
       # Parallel processing for large files
       - PARALLEL_PROCESSING_THRESHOLD=52428800
       - PARALLEL_CHUNK_PAGES=50
     volumes:
       - backend_storage:/app/storage
-    ports:
-      - "8000:8000"
+    # SECURITY: Port removed - access via nginx only
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,9 +97,9 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
     volumes:
       - backend_storage:/app/storage
     depends_on:
@@ -128,9 +125,9 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
     volumes:
       - backend_storage:/app/storage
     depends_on:
@@ -156,9 +153,9 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
     volumes:
       - backend_storage:/app/storage
     depends_on:
@@ -184,9 +181,9 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
     volumes:
       - backend_storage:/app/storage
     depends_on:
@@ -208,12 +205,11 @@ services:
     restart: unless-stopped
     command: celery -A app.core.celery_app flower --port=5555
     environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
-    ports:
-      - "5555:5555"
+    # SECURITY: Port removed - use SSH tunnel for monitoring
     depends_on:
       - redis
 
@@ -223,11 +219,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=https://pdfglide.com/api
+        - NEXT_PUBLIC_API_URL=https://pdfglide.com
     container_name: fileforge-frontend
     restart: unless-stopped
     environment:
-      - NEXT_PUBLIC_API_URL=https://pdfglide.com/api
+      - NEXT_PUBLIC_API_URL=https://pdfglide.com
     depends_on:
       - backend
 

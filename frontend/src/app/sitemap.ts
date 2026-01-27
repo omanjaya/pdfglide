@@ -1,5 +1,6 @@
 import { MetadataRoute } from 'next';
 import { toolsMetadata } from '@/lib/seo';
+import { blogPosts } from '@/lib/blog';
 
 const SITE_URL = 'https://pdfglide.com';
 
@@ -18,6 +19,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: `${SITE_URL}/pricing`,
       lastModified,
       changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: `${SITE_URL}/blog`,
+      lastModified,
+      changeFrequency: 'weekly',
       priority: 0.8,
     },
     {
@@ -42,5 +49,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.9,
   }));
 
-  return [...staticPages, ...toolPages];
+  // Blog posts
+  const blogPages: MetadataRoute.Sitemap = blogPosts.map((post) => ({
+    url: `${SITE_URL}/blog/${post.slug}`,
+    lastModified: new Date(post.updatedAt),
+    changeFrequency: 'monthly' as const,
+    priority: 0.7,
+  }));
+
+  return [...staticPages, ...toolPages, ...blogPages];
 }
