@@ -12,6 +12,22 @@ from app.core.exceptions import ProcessingError
 class OfficeConverter(BaseProcessor):
     """Convert office documents using LibreOffice."""
 
+    async def execute(self, file: Path, output_path: Path, conversion_type: str = "to_pdf") -> Path:
+        """
+        Execute document conversion.
+
+        Args:
+            file: Input file path
+            output_path: Output file path
+            conversion_type: Type of conversion ('to_pdf' or 'pdf_to_docx')
+
+        Returns:
+            Path to converted file
+        """
+        if conversion_type == "pdf_to_docx":
+            return await self.pdf_to_docx(file, output_path)
+        return await self.to_pdf(file, output_path)
+
     async def to_pdf(self, file: Path, output_path: Path) -> Path:
         """
         Convert document to PDF using LibreOffice.

@@ -4,7 +4,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
-    container_name: pdfglide-db
+    container_name: fileforge-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -23,7 +23,7 @@ services:
   # Redis for Queue and Caching
   redis:
     image: redis:7-alpine
-    container_name: pdfglide-redis
+    container_name: fileforge-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
@@ -41,19 +41,19 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: pdfglide-backend
+    container_name: fileforge-backend
     restart: unless-stopped
     environment:
       - APP_ENV=${APP_ENV:-development}
       - DEBUG=${DEBUG:-false}
       # Database - using Docker internal network
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pdfglide}
-      - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pdfglide}
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       # Security - API Key (optional in development, set for production)
       - API_KEY=${API_KEY:-}
       # Storage
       - STORAGE_PATH=/app/storage
-      - MAX_UPLOAD_SIZE=104857600
+      - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-2147483648}
       - FILE_EXPIRY_HOURS=1
       # Rate limiting
       - RATE_LIMIT_PER_MINUTE=60
@@ -63,6 +63,9 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
       - REDIS_URL=redis://redis:6379/2
       - ENABLE_ASYNC_PROCESSING=true
+      # Parallel processing for large files
+      - PARALLEL_PROCESSING_THRESHOLD=52428800
+      - PARALLEL_CHUNK_PAGES=50
     volumes:
       - backend_storage:/app/storage
     ports:
@@ -77,19 +80,25 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
 
-  # Celery Worker - PDF Heavy Operations
+  # Celery Worker - PDF Heavy Operations (compress, merge large files)
   celery-worker-pdf-heavy:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: pdfglide-worker-pdf-heavy
+    container_name: fileforge-worker-pdf-heavy
     restart: unless-stopped
-    command: celery -A app.core.celery_app worker -Q pdf-heavy -c 1 --loglevel=info
+    command: celery -A app.core.celery_app worker -Q pdf-heavy -c 2 --loglevel=info --max-memory-per-child=2000000
     environment:
       - APP_ENV=${APP_ENV:-development}
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pdfglide}
-      - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pdfglide}
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
@@ -99,19 +108,25 @@ services:
     depends_on:
       - redis
       - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
 
-  # Celery Worker - PDF Light Operations
+  # Celery Worker - PDF Light Operations (rotate, split, metadata)
   celery-worker-pdf-light:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: pdfglide-worker-pdf-light
+    container_name: fileforge-worker-pdf-light
     restart: unless-stopped
-    command: celery -A app.core.celery_app worker -Q pdf-light,default -c 4 --loglevel=info
+    command: celery -A app.core.celery_app worker -Q pdf-light,default -c 8 --loglevel=info --max-memory-per-child=500000
     environment:
       - APP_ENV=${APP_ENV:-development}
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pdfglide}
-      - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pdfglide}
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
@@ -121,19 +136,25 @@ services:
     depends_on:
       - redis
       - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
 
   # Celery Worker - Image Operations
   celery-worker-image:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: pdfglide-worker-image
+    container_name: fileforge-worker-image
     restart: unless-stopped
-    command: celery -A app.core.celery_app worker -Q image -c 2 --loglevel=info
+    command: celery -A app.core.celery_app worker -Q image -c 4 --loglevel=info --max-memory-per-child=1000000
     environment:
       - APP_ENV=${APP_ENV:-development}
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pdfglide}
-      - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pdfglide}
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
@@ -143,19 +164,25 @@ services:
     depends_on:
       - redis
       - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+        reservations:
+          memory: 512M
 
-  # Celery Worker - Document Operations
+  # Celery Worker - Document Operations (Word, Excel, PPT conversion)
   celery-worker-document:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: pdfglide-worker-document
+    container_name: fileforge-worker-document
     restart: unless-stopped
-    command: celery -A app.core.celery_app worker -Q document -c 1 --loglevel=info
+    command: celery -A app.core.celery_app worker -Q document -c 2 --loglevel=info --max-memory-per-child=1500000
     environment:
       - APP_ENV=${APP_ENV:-development}
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pdfglide}
-      - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pdfglide}
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
@@ -165,18 +192,26 @@ services:
     depends_on:
       - redis
       - postgres
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+        reservations:
+          memory: 512M
 
   # Flower - Celery Monitoring UI
   flower:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: pdfglide-flower
+    container_name: fileforge-flower
     restart: unless-stopped
     command: celery -A app.core.celery_app flower --port=5555
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
     ports:
       - "5555:5555"
     depends_on:
@@ -187,13 +222,29 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: pdfglide-frontend
+      args:
+        - NEXT_PUBLIC_API_URL=https://pdfglide.com/api
+    container_name: fileforge-frontend
     restart: unless-stopped
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-    ports:
-      - "3000:3000"
+      - NEXT_PUBLIC_API_URL=https://pdfglide.com/api
     depends_on:
+      - backend
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: fileforge-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.ssl.conf:/etc/nginx/nginx.conf:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - frontend
       - backend
 
 volumes:

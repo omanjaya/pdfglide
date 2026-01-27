@@ -36,10 +36,10 @@ class PDFRepairer(BaseProcessor):
                 allow_overwriting_input=False,
             ) as pdf:
                 # Save with linearization for better web viewing
+                # Note: linearize and normalize_content cannot be used together
                 pdf.save(
                     output_path,
                     linearize=True,
-                    normalize_content=True,
                     fix_metadata_version=True,
                 )
 

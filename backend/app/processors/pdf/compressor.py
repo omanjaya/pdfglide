@@ -1,4 +1,4 @@
-"""PDF compressor processor with advanced optimization."""
+"""PDF compressor processor with advanced optimization and parallel processing."""
 
 import asyncio
 import subprocess
@@ -6,7 +6,8 @@ import shutil
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 from app.processors.base import BaseProcessor
 from app.core.exceptions import ProcessingError
@@ -27,8 +28,12 @@ class PDFCompressor(BaseProcessor):
     DPI_LEVELS = [300, 250, 220, 200, 180, 160, 144, 130, 120, 110, 100, 90, 80, 72]
 
     # DPI boost for preserve_quality mode - use higher DPI for better visual quality
-    # When preserve_quality=True, we bump up the DPI to reduce image degradation
     DPI_QUALITY_BOOST = 50  # Add this to DPI when preserving quality
+
+    # Parallel processing settings
+    PARALLEL_THRESHOLD_BYTES = int(os.getenv("PARALLEL_PROCESSING_THRESHOLD", 52428800))  # 50MB
+    PARALLEL_CHUNK_PAGES = int(os.getenv("PARALLEL_CHUNK_PAGES", 50))  # Pages per chunk
+    MAX_PARALLEL_WORKERS = min(os.cpu_count() or 2, 4)  # Max parallel workers
 
     async def execute(
         self,
@@ -72,6 +77,17 @@ class PDFCompressor(BaseProcessor):
                 file, output_path, target_size_kb, gs_path, grayscale, remove_metadata
             )
 
+        # Use parallel processing for large files
+        if original_size > self.PARALLEL_THRESHOLD_BYTES and gs_path:
+            try:
+                return await self._compress_parallel(
+                    file, output_path, quality, gs_path, image_dpi, grayscale,
+                    preserve_quality, remove_metadata
+                )
+            except Exception:
+                # Fallback to sequential processing if parallel fails
+                pass
+
         # Standard compression mode with quality preservation
         if gs_path and compress_images:
             result_path = await self._compress_with_ghostscript(
@@ -98,6 +114,108 @@ class PDFCompressor(BaseProcessor):
         }
 
         return result_path, stats
+
+    async def _compress_parallel(
+        self,
+        file: Path,
+        output_path: Path,
+        quality: str,
+        gs_path: str,
+        image_dpi: Optional[int],
+        grayscale: bool,
+        preserve_quality: bool,
+        remove_metadata: bool,
+    ) -> Tuple[Path, dict]:
+        """
+        Compress large PDF using parallel processing.
+
+        Splits PDF into chunks, compresses each chunk in parallel,
+        then merges the results.
+        """
+        import pikepdf
+
+        original_size = file.stat().st_size
+        temp_dir = Path(tempfile.mkdtemp(prefix="pdf_parallel_"))
+
+        try:
+            # Get page count
+            with pikepdf.open(file) as pdf:
+                total_pages = len(pdf.pages)
+
+            # Calculate chunks
+            chunk_size = self.PARALLEL_CHUNK_PAGES
+            chunks = []
+            for start in range(0, total_pages, chunk_size):
+                end = min(start + chunk_size, total_pages)
+                chunks.append((start, end))
+
+            # If only 1-2 chunks, don't bother with parallel
+            if len(chunks) <= 2:
+                raise Exception("Too few chunks for parallel processing")
+
+            # Split PDF into chunks
+            chunk_files = []
+            with pikepdf.open(file) as pdf:
+                for i, (start, end) in enumerate(chunks):
+                    chunk_path = temp_dir / f"chunk_{i:04d}.pdf"
+                    chunk_pdf = pikepdf.Pdf.new()
+                    for page_num in range(start, end):
+                        chunk_pdf.pages.append(pdf.pages[page_num])
+                    chunk_pdf.save(chunk_path)
+                    chunk_files.append(chunk_path)
+
+            # Compress chunks in parallel using ThreadPoolExecutor
+            compressed_chunks = []
+
+            async def compress_chunk(chunk_path: Path, index: int) -> Path:
+                output_chunk = temp_dir / f"compressed_{index:04d}.pdf"
+                await self._compress_with_ghostscript(
+                    chunk_path, output_chunk, quality, gs_path,
+                    image_dpi, grayscale, preserve_quality
+                )
+                return output_chunk
+
+            # Run compression tasks concurrently (limited by MAX_PARALLEL_WORKERS)
+            semaphore = asyncio.Semaphore(self.MAX_PARALLEL_WORKERS)
+
+            async def bounded_compress(chunk_path: Path, index: int) -> Path:
+                async with semaphore:
+                    return await compress_chunk(chunk_path, index)
+
+            tasks = [
+                bounded_compress(chunk_path, i)
+                for i, chunk_path in enumerate(chunk_files)
+            ]
+            compressed_chunks = await asyncio.gather(*tasks)
+
+            # Merge compressed chunks
+            merged_pdf = pikepdf.Pdf.new()
+            for chunk_path in compressed_chunks:
+                with pikepdf.open(chunk_path) as chunk_pdf:
+                    for page in chunk_pdf.pages:
+                        merged_pdf.pages.append(page)
+
+            # Save merged result
+            merged_pdf.save(output_path, linearize=True)
+
+            # Optimize final result
+            await self._optimize_with_pikepdf(output_path, remove_metadata)
+
+            compressed_size = output_path.stat().st_size
+
+            return output_path, {
+                "original_size": original_size,
+                "compressed_size": compressed_size,
+                "saved_bytes": original_size - compressed_size,
+                "compression_ratio": round((1 - compressed_size / original_size) * 100, 1) if original_size > 0 else 0,
+                "method": "ghostscript_parallel",
+                "chunks_processed": len(chunks),
+                "parallel_workers": self.MAX_PARALLEL_WORKERS,
+            }
+
+        finally:
+            # Cleanup temp directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     async def _compress_to_target_size(
         self,

@@ -79,6 +79,8 @@ class PDFOrganizer(BaseProcessor):
             Path to PDF with pages deleted
         """
         try:
+            import pikepdf
+
             with pikepdf.open(file) as pdf:
                 total_pages = len(pdf.pages)
 
