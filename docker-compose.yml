@@ -1,0 +1,202 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: pdfglide-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pdfglide
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Queue and Caching
+  redis:
+    image: redis:7-alpine
+    container_name: pdfglide-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend (API Server)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pdfglide-backend
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - DEBUG=${DEBUG:-false}
+      # Database - using Docker internal network
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/pdfglide
+      - DATABASE_URL_SYNC=postgresql://postgres:postgres@postgres:5432/pdfglide
+      # Security - API Key (optional in development, set for production)
+      - API_KEY=${API_KEY:-}
+      # Storage
+      - STORAGE_PATH=/app/storage
+      - MAX_UPLOAD_SIZE=104857600
+      - FILE_EXPIRY_HOURS=1
+      # Rate limiting
+      - RATE_LIMIT_PER_MINUTE=60
+      - RATE_LIMIT_PER_HOUR=1000
+      # Celery & Redis
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - REDIS_URL=redis://redis:6379/2
+      - ENABLE_ASYNC_PROCESSING=true
+    volumes:
+      - backend_storage:/app/storage
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker - PDF Heavy Operations
+  celery-worker-pdf-heavy:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pdfglide-worker-pdf-heavy
+    restart: unless-stopped
+    command: celery -A app.core.celery_app worker -Q pdf-heavy -c 1 --loglevel=info
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/pdfglide
+      - DATABASE_URL_SYNC=postgresql://postgres:postgres@postgres:5432/pdfglide
+      - STORAGE_PATH=/app/storage
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - REDIS_URL=redis://redis:6379/2
+    volumes:
+      - backend_storage:/app/storage
+    depends_on:
+      - redis
+      - postgres
+
+  # Celery Worker - PDF Light Operations
+  celery-worker-pdf-light:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pdfglide-worker-pdf-light
+    restart: unless-stopped
+    command: celery -A app.core.celery_app worker -Q pdf-light,default -c 4 --loglevel=info
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/pdfglide
+      - DATABASE_URL_SYNC=postgresql://postgres:postgres@postgres:5432/pdfglide
+      - STORAGE_PATH=/app/storage
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - REDIS_URL=redis://redis:6379/2
+    volumes:
+      - backend_storage:/app/storage
+    depends_on:
+      - redis
+      - postgres
+
+  # Celery Worker - Image Operations
+  celery-worker-image:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pdfglide-worker-image
+    restart: unless-stopped
+    command: celery -A app.core.celery_app worker -Q image -c 2 --loglevel=info
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/pdfglide
+      - DATABASE_URL_SYNC=postgresql://postgres:postgres@postgres:5432/pdfglide
+      - STORAGE_PATH=/app/storage
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - REDIS_URL=redis://redis:6379/2
+    volumes:
+      - backend_storage:/app/storage
+    depends_on:
+      - redis
+      - postgres
+
+  # Celery Worker - Document Operations
+  celery-worker-document:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pdfglide-worker-document
+    restart: unless-stopped
+    command: celery -A app.core.celery_app worker -Q document -c 1 --loglevel=info
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/pdfglide
+      - DATABASE_URL_SYNC=postgresql://postgres:postgres@postgres:5432/pdfglide
+      - STORAGE_PATH=/app/storage
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - REDIS_URL=redis://redis:6379/2
+    volumes:
+      - backend_storage:/app/storage
+    depends_on:
+      - redis
+      - postgres
+
+  # Flower - Celery Monitoring UI
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pdfglide-flower
+    restart: unless-stopped
+    command: celery -A app.core.celery_app flower --port=5555
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pdfglide-frontend
+    restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  backend_storage:
+  redis_data:

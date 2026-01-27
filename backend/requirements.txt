@@ -1,0 +1,71 @@
+# FastAPI & Web
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+aiofiles>=23.2.1
+
+# Database
+sqlalchemy>=2.0.25
+aiosqlite>=0.19.0
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+
+# PDF Processing
+pikepdf>=8.11.0
+pdf2image>=1.17.0
+reportlab>=4.0.8
+PyMuPDF>=1.23.0
+
+# Image Processing
+Pillow>=10.2.0
+rembg>=2.0.50
+
+# Document Processing
+python-docx>=1.1.0
+openpyxl>=3.1.2
+pdf2docx>=0.5.8
+python-pptx>=0.6.23
+
+# Table Extraction (PDF to Excel)
+tabula-py>=2.9.0
+pandas>=2.1.0
+jpype1>=1.5.0
+
+# HTML to PDF
+weasyprint>=60.0
+playwright>=1.40.0
+
+# OCR
+pytesseract>=0.3.10
+
+# QR Code
+qrcode[pil]>=7.4.2
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic[email]>=2.5.0
+pydantic-settings>=2.1.0
+email-validator>=2.0.0
+
+# Authentication
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# Queue & Background Tasks
+celery>=5.3.0
+redis>=5.0.0
+flower>=2.0.0
+
+# Object Storage (S3/MinIO)
+boto3>=1.34.0
+
+# Payment Processing
+stripe>=7.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+httpx>=0.26.0
+
+# Linting
+ruff>=0.1.0

@@ -1,0 +1,80 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.pyo
+.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Next.js
+.next/
+out/
+
+# Python
+*.py[cod]
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Build
+*.tar.gz
+*.zip
+deploy-*.zip
+
+# Storage (uploaded files)
+storage/
+uploads/
+downloads/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Certificates
+certbot/
+
+# Docker volumes
+postgres_data/
+redis_data/
+
+# Misc
+*.bak
+*.tmp
+.cache/
