@@ -4,6 +4,8 @@ import asyncio
 import io
 from pathlib import Path
 
+from reportlab.pdfgen import canvas
+
 from app.processors.base import BaseProcessor
 from app.core.exceptions import ProcessingError
 
