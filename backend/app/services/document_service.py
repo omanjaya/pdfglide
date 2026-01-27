@@ -7,6 +7,8 @@ from app.services.base import BaseService, ProcessedResult
 from app.processors.document.office_converter import OfficeConverter
 from app.processors.document.html_converter import HTMLToPDFConverter
 from app.processors.document.pptx_converter import PowerPointToPDFConverter
+from app.processors.document.ai_pdf_converter import AIPDFConverter
+from app.config import settings
 
 
 class DocumentService(BaseService):
@@ -27,6 +29,7 @@ class DocumentService(BaseService):
         self.converter = OfficeConverter(self.processed_dir)
         self.html_converter = HTMLToPDFConverter(self.processed_dir)
         self.pptx_converter = PowerPointToPDFConverter(self.processed_dir)
+        self.ai_converter = AIPDFConverter(self.processed_dir, api_key=settings.ZAI_API_KEY)
 
     async def word_to_pdf(self, file: Path) -> ProcessedResult:
         """Convert Word document to PDF."""
@@ -60,12 +63,37 @@ class DocumentService(BaseService):
             mime_type="application/pdf",
         )
 
-    async def pdf_to_word(self, file: Path) -> ProcessedResult:
-        """Convert PDF to Word document."""
+    async def pdf_to_word(
+        self,
+        file: Path,
+        use_ai: bool = True,
+        quality: str = "standard",
+        model: Optional[str] = None,
+    ) -> ProcessedResult:
+        """
+        Convert PDF to Word document.
+
+        Args:
+            file: Input PDF file
+            use_ai: Use AI-powered conversion (recommended, much better quality)
+            quality: Conversion quality - draft, standard, high
+            model: AI model to use (default from settings)
+
+        Returns:
+            ProcessedResult with converted DOCX file
+        """
         output_id = self.generate_output_id()
         output_path = self.get_output_path(output_id, ".docx")
 
-        await self.converter.pdf_to_docx(file, output_path)
+        # Use AI conversion if enabled and API key is configured
+        if use_ai and settings.ZAI_API_KEY:
+            ai_model = model or settings.ZAI_MODEL
+            await self.ai_converter.execute(
+                file, output_path, model=ai_model, quality=quality
+            )
+        else:
+            # Fallback to rule-based conversion
+            await self.converter.pdf_to_docx(file, output_path)
 
         original_name = file.stem
         return ProcessedResult(

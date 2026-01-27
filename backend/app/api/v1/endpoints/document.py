@@ -54,11 +54,23 @@ async def pdf_to_word(
     db: DbSession,
     service: DocumentServiceDep,
     file: UploadFile = File(..., description="PDF document"),
+    use_ai: bool = Form(default=True, description="Use AI-powered conversion (recommended)"),
+    quality: str = Form(default="standard", description="Conversion quality: draft, standard, high"),
 ):
-    """Convert PDF to Word document."""
+    """
+    Convert PDF to Word document.
+
+    - **use_ai**: Enable AI-powered conversion for much better results (default: true)
+    - **quality**: Conversion quality level
+      - draft: Faster, lower accuracy
+      - standard: Balanced (recommended)
+      - high: Best accuracy, slower
+    """
     handler = TaskHandler(db, service, "pdf_to_word")
     return await handler.execute(
-        process_func=lambda paths: service.pdf_to_word(paths[0]),
+        process_func=lambda paths: service.pdf_to_word(
+            paths[0], use_ai=use_ai, quality=quality
+        ),
         file=file,
     )
 

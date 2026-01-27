@@ -94,6 +94,11 @@ class Settings(BaseSettings):
     ANONYMOUS_DAILY_FILE_LIMIT: int = 3
     ANONYMOUS_MAX_FILE_SIZE: int = 5242880  # 5MB
 
+    # ==================== AI Services ====================
+    # Z.ai API for AI-powered document conversion
+    ZAI_API_KEY: Optional[str] = None
+    ZAI_MODEL: str = "glm-4.6v-flash"  # Options: glm-4.6v-flash (free), glm-4.6v-flashx, glm-4.6v
+
     # ==================== JWT Authentication ====================
     JWT_SECRET_KEY: str = "change-this-in-production-to-a-random-secret"
     JWT_ALGORITHM: str = "HS256"
