@@ -11,6 +11,8 @@ import {
   FileType,
   Upload,
   Sparkles,
+  Shield,
+  Clock,
   Check,
   Copy,
   Columns,
@@ -285,7 +287,7 @@ export default function RemoveBackgroundPage() {
   return (
     <ToolLayout
       title="Remove Background"
-      description="Instantly remove image backgrounds with AI precision"
+      description="Instantly remove image backgrounds with smart edge detection"
       icon={Eraser}
       color="bg-gradient-to-br from-green-500 to-emerald-600"
     >
@@ -363,7 +365,7 @@ export default function RemoveBackgroundPage() {
           {/* Features */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { icon: Sparkles, title: 'AI-Powered', desc: 'Smart edge detection' },
+              { icon: Sparkles, title: 'Smart Detection', desc: 'Precise edge detection' },
               { icon: Palette, title: 'Custom Background', desc: 'Any color you want' },
               { icon: Download, title: 'Multiple Formats', desc: 'PNG, JPEG, WebP' },
             ].map((feature) => (
@@ -542,6 +544,20 @@ export default function RemoveBackgroundPage() {
                       JPEG/WebP will use white background
                     </p>
                   )}
+                </div>
+
+                {/* Security info */}
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <Shield className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                      Your data is secure
+                    </p>
+                    <p className="text-xs text-green-700 dark:text-green-300 flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      Files automatically deleted after download or within 5 minutes
+                    </p>
+                  </div>
                 </div>
 
                 {/* Process Button */}

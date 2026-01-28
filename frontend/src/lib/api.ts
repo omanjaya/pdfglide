@@ -271,10 +271,6 @@ export async function wordToPdf(file: File): Promise<TaskResponse> {
 export interface PdfToWordOptions {
   quality?: 'draft' | 'standard' | 'high';
   lang?: string;
-  preserveLayout?: boolean;
-  mode?: 'standard' | 'exact';
-  ocrEngine?: 'tesseract' | 'surya' | 'openrouter';
-  documentType?: 'general' | 'academic' | 'form' | 'invoice' | 'legal' | 'report' | 'letter';
 }
 
 export async function pdfToWord(
@@ -285,12 +281,6 @@ export async function pdfToWord(
   formData.append('file', file);
   if (options.quality) formData.append('quality', options.quality);
   if (options.lang) formData.append('lang', options.lang);
-  if (options.preserveLayout !== undefined) {
-    formData.append('preserve_layout', String(options.preserveLayout));
-  }
-  if (options.mode) formData.append('mode', options.mode);
-  if (options.ocrEngine) formData.append('ocr_engine', options.ocrEngine);
-  if (options.documentType) formData.append('document_type', options.documentType);
   const response = await api.post('/document/pdf-to-word', formData);
   return response.data;
 }

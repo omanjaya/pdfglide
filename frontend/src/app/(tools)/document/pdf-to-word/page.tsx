@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FileText, Settings2, Sparkles } from 'lucide-react';
+import { FileText, Settings2, Shield, Clock } from 'lucide-react';
 import { ToolLayout } from '@/components/shared/ToolLayout';
 import { FileUploader } from '@/components/shared/FileUploader';
 import { ProcessingStatus } from '@/components/shared/ProcessingStatus';
@@ -19,16 +19,10 @@ import { pdfToWord, PdfToWordOptions, TaskResponse } from '@/lib/api';
 
 type Status = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
 
-const OCR_ENGINES = [
-  { value: 'tesseract', label: 'Tesseract', description: 'Fast & stable, good for most documents' },
-  { value: 'openrouter', label: 'AI Vision (Qwen-VL)', description: 'Best accuracy for scanned docs' },
-  { value: 'surya', label: 'Surya (Experimental)', description: 'Better accuracy, may be unstable' },
-];
-
 const QUALITY_OPTIONS = [
-  { value: 'draft', label: 'Draft', description: 'Fastest, lower accuracy' },
-  { value: 'standard', label: 'Standard', description: 'Balanced speed and accuracy' },
-  { value: 'high', label: 'High', description: 'Best accuracy, slower' },
+  { value: 'draft', label: 'Draft', description: 'Fastest processing' },
+  { value: 'standard', label: 'Standard', description: 'Balanced speed & quality' },
+  { value: 'high', label: 'High', description: 'Best accuracy' },
 ];
 
 const LANGUAGES = [
@@ -43,16 +37,6 @@ const LANGUAGES = [
   { value: 'spa', label: 'Spanish' },
 ];
 
-const DOCUMENT_TYPES = [
-  { value: 'general', label: 'General', description: 'Default, works for most documents' },
-  { value: 'academic', label: 'Academic', description: 'Research papers, journals, theses' },
-  { value: 'form', label: 'Form', description: 'Forms, applications, questionnaires' },
-  { value: 'invoice', label: 'Invoice', description: 'Invoices, receipts, bills' },
-  { value: 'legal', label: 'Legal', description: 'Contracts, agreements' },
-  { value: 'report', label: 'Report', description: 'Business reports, analysis' },
-  { value: 'letter', label: 'Letter', description: 'Letters, correspondence' },
-];
-
 export default function PdfToWordPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<Status>('idle');
@@ -61,10 +45,8 @@ export default function PdfToWordPage() {
   const [showOptions, setShowOptions] = useState(false);
 
   // Options
-  const [ocrEngine, setOcrEngine] = useState<'tesseract' | 'surya' | 'openrouter'>('tesseract');
   const [quality, setQuality] = useState<'draft' | 'standard' | 'high'>('standard');
   const [lang, setLang] = useState('eng');
-  const [documentType, setDocumentType] = useState<'general' | 'academic' | 'form' | 'invoice' | 'legal' | 'report' | 'letter'>('general');
 
   const handleProcess = async () => {
     if (files.length === 0) return;
@@ -74,11 +56,8 @@ export default function PdfToWordPage() {
 
     try {
       const options: PdfToWordOptions = {
-        ocrEngine,
         quality,
         lang,
-        preserveLayout: true,
-        documentType: ocrEngine === 'openrouter' ? documentType : undefined,
       };
       const response = await pdfToWord(files[0], options);
       if (response.success) {
@@ -104,7 +83,7 @@ export default function PdfToWordPage() {
   return (
     <ToolLayout
       title="PDF to Word"
-      description="Convert PDF documents to editable Word format with OCR"
+      description="Convert PDF documents to editable Word format"
       icon={FileText}
       color="bg-blue-500"
     >
@@ -137,34 +116,6 @@ export default function PdfToWordPage() {
               {showOptions && (
                 <Card>
                   <CardContent className="pt-6 space-y-4">
-                    {/* OCR Engine */}
-                    <div className="space-y-2">
-                      <Label>OCR Engine</Label>
-                      <Select
-                        value={ocrEngine}
-                        onValueChange={(v) => setOcrEngine(v as typeof ocrEngine)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {OCR_ENGINES.map((engine) => (
-                            <SelectItem key={engine.value} value={engine.value}>
-                              <div className="flex items-center gap-2">
-                                {engine.value === 'openrouter' && (
-                                  <Sparkles className="h-3 w-3 text-yellow-500" />
-                                )}
-                                <span>{engine.label}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">
-                        {OCR_ENGINES.find((e) => e.value === ocrEngine)?.description}
-                      </p>
-                    </div>
-
                     {/* Quality */}
                     <div className="space-y-2">
                       <Label>Quality</Label>
@@ -204,44 +155,27 @@ export default function PdfToWordPage() {
                         </SelectContent>
                       </Select>
                     </div>
-
-                    {/* Document Type - only for OpenRouter */}
-                    {ocrEngine === 'openrouter' && (
-                      <div className="space-y-2">
-                        <Label>Document Type</Label>
-                        <Select
-                          value={documentType}
-                          onValueChange={(v) => setDocumentType(v as typeof documentType)}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {DOCUMENT_TYPES.map((dt) => (
-                              <SelectItem key={dt.value} value={dt.value}>
-                                {dt.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">
-                          {DOCUMENT_TYPES.find((d) => d.value === documentType)?.description}
-                        </p>
-                      </div>
-                    )}
-
-                    {ocrEngine === 'openrouter' && (
-                      <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
-                        <p className="text-xs text-yellow-800 dark:text-yellow-200">
-                          <Sparkles className="inline h-3 w-3 mr-1" />
-                          AI Vision uses Qwen-VL for best accuracy on scanned documents.
-                          Requires OpenRouter API key configured on server.
-                        </p>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               )}
+
+              {/* Security info */}
+              <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
+                <CardContent className="pt-4 pb-4">
+                  <div className="flex items-start gap-3">
+                    <Shield className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                        Your data is secure
+                      </p>
+                      <p className="text-xs text-green-700 dark:text-green-300">
+                        <Clock className="inline h-3 w-3 mr-1" />
+                        Files automatically deleted after download or within 5 minutes
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
               <div className="flex justify-center">
                 <Button size="lg" onClick={handleProcess}>

@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { FileSpreadsheet } from 'lucide-react';
+import { FileSpreadsheet, Shield, Clock } from 'lucide-react';
 import { ToolLayout } from '@/components/shared/ToolLayout';
 import { FileUploader } from '@/components/shared/FileUploader';
 import { ProcessingStatus } from '@/components/shared/ProcessingStatus';
 import { Button } from '@/components/ui/Button';
+import { Card, CardContent } from '@/components/ui/Card';
 import { excelToPdf, TaskResponse } from '@/lib/api';
 
 type Status = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
@@ -65,12 +66,32 @@ export default function ExcelToPdfPage() {
           />
 
           {files.length > 0 && (
-            <div className="flex justify-center">
-              <Button size="lg" onClick={handleProcess}>
-                <FileSpreadsheet className="mr-2 h-5 w-5" />
-                Convert to PDF
-              </Button>
-            </div>
+            <>
+              {/* Security info */}
+              <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
+                <CardContent className="pt-4 pb-4">
+                  <div className="flex items-start gap-3">
+                    <Shield className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                        Your data is secure
+                      </p>
+                      <p className="text-xs text-green-700 dark:text-green-300">
+                        <Clock className="inline h-3 w-3 mr-1" />
+                        Files automatically deleted after download or within 5 minutes
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="flex justify-center">
+                <Button size="lg" onClick={handleProcess}>
+                  <FileSpreadsheet className="mr-2 h-5 w-5" />
+                  Convert to PDF
+                </Button>
+              </div>
+            </>
           )}
         </div>
       )}
