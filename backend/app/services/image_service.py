@@ -147,6 +147,7 @@ class ImageService(BaseService):
         bg_color: str | None = None,
         output_format: str = "png",
         quality: int = 90,
+        fast_mode: bool = False,
     ) -> ProcessedResult:
         """
         Remove background from image.
@@ -179,6 +180,7 @@ class ImageService(BaseService):
             bg_color=bg_color,
             output_format=output_format,
             quality=quality,
+            fast_mode=fast_mode,
         )
 
         return ProcessedResult(

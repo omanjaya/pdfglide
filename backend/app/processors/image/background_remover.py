@@ -35,6 +35,7 @@ class BackgroundRemover(BaseProcessor):
         bg_color: Optional[str] = None,
         output_format: str = "png",
         quality: int = 90,
+        fast_mode: bool = False,
     ) -> Path:
         """
         Remove background from image with optimized hair detection.
@@ -80,28 +81,34 @@ class BackgroundRemover(BaseProcessor):
                 # Use cached session (u2net_human_seg) for better human/hair detection
                 session = get_rembg_session()
 
-                # Try with alpha matting for better hair edges
-                try:
-                    output_image = remove(
-                        enhanced,
-                        session=session,
-                        alpha_matting=True,
-                        alpha_matting_foreground_threshold=270,
-                        alpha_matting_background_threshold=20,
-                        alpha_matting_erode_size=5,
-                    )
-                    logger.info("Background removal with alpha matting succeeded")
-                except Exception as e:
-                    # Fallback without alpha matting if it fails
-                    logger.warning(f"Alpha matting failed, using basic removal: {e}")
+                # Fast mode: skip alpha matting for quicker results
+                if fast_mode:
+                    logger.info("Using fast mode (no alpha matting)")
                     output_image = remove(enhanced, session=session)
+                else:
+                    # Try with alpha matting for better hair edges
+                    try:
+                        output_image = remove(
+                            enhanced,
+                            session=session,
+                            alpha_matting=True,
+                            alpha_matting_foreground_threshold=270,
+                            alpha_matting_background_threshold=20,
+                            alpha_matting_erode_size=5,
+                        )
+                        logger.info("Background removal with alpha matting succeeded")
+                    except Exception as e:
+                        # Fallback without alpha matting if it fails
+                        logger.warning(f"Alpha matting failed, using basic removal: {e}")
+                        output_image = remove(enhanced, session=session)
 
                 # Resize back to original if we resized
                 if max(original_size) > max_size:
                     output_image = output_image.resize(original_size, Image.LANCZOS)
 
                 # Post-processing: Smooth and feather edges for natural look
-                if output_image.mode == "RGBA":
+                # Skip in fast mode for quicker results
+                if output_image.mode == "RGBA" and not fast_mode:
                     r, g, b, alpha = output_image.split()
 
                     # 1. Light median filter to remove small artifacts

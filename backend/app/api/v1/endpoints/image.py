@@ -87,6 +87,7 @@ async def remove_background(
     bg_color: str = Form(default=None, description="Background color: transparent (default), white, black, or hex #RRGGBB"),
     output_format: str = Form(default="png", description="Output format: png, jpeg, webp"),
     quality: int = Form(default=90, ge=1, le=100, description="Quality for JPEG/WebP (1-100)"),
+    fast_mode: bool = Form(default=False, description="Fast mode: skip alpha matting and post-processing for quicker results"),
 ):
     """
     Remove background from image using AI.
@@ -100,6 +101,7 @@ async def remove_background(
       - #RRGGBB: Custom hex color
     - **output_format**: Output format (png, jpeg, webp)
     - **quality**: Quality for JPEG/WebP (1-100)
+    - **fast_mode**: Skip alpha matting for faster processing (less detail on hair/edges)
     """
     return await handle_task(
         db, service, "image_remove_bg",
@@ -108,12 +110,14 @@ async def remove_background(
             bg_color=bg_color if bg_color else None,
             output_format=output_format,
             quality=quality,
+            fast_mode=fast_mode,
         ),
         file=file,
         metadata={
             "bg_color": bg_color,
             "output_format": output_format,
             "quality": quality,
+            "fast_mode": fast_mode,
         },
     )
 

@@ -5,10 +5,14 @@ This module configures Celery with Redis as the broker and result backend.
 Workers are separated by queue for different types of operations.
 """
 
+import logging
 from celery import Celery
+from celery.signals import worker_ready
 from kombu import Queue
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def create_celery_app() -> Celery:
@@ -96,6 +100,24 @@ def create_celery_app() -> Celery:
 
 # Create the Celery app instance
 celery_app = create_celery_app()
+
+
+@worker_ready.connect
+def preload_models(sender, **kwargs):
+    """Preload AI models when worker starts to avoid cold start delays."""
+    import os
+
+    # Check if PRELOAD_REMBG env var is set (set in docker-compose for image worker)
+    should_preload = os.environ.get("PRELOAD_REMBG", "false").lower() == "true"
+
+    if should_preload:
+        try:
+            logger.info("Preloading rembg model for image worker...")
+            from app.processors.image.background_remover import get_rembg_session
+            get_rembg_session()
+            logger.info("rembg model preloaded successfully")
+        except Exception as e:
+            logger.warning(f"Failed to preload rembg model: {e}")
 
 
 # Task priorities (higher = more important)
