@@ -40,8 +40,10 @@ services:
     container_name: fileforge-backend
     restart: unless-stopped
     environment:
-      - APP_ENV=${APP_ENV:-development}
+      - APP_ENV=${APP_ENV:-production}
       - DEBUG=${DEBUG:-false}
+      # CORS - allow production domain
+      - CORS_ORIGINS=["https://pdfglide.com","https://www.pdfglide.com","http://localhost:3000"]
       # Database - using Docker internal network
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
@@ -228,15 +230,13 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=https://pdfglide.com
     container_name: fileforge-frontend
     restart: unless-stopped
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-      - WATCHPACK_POLLING=true
-    # DEV: Expose port for local development
-    ports:
-      - "3000:3000"
+      - NEXT_PUBLIC_API_URL=https://pdfglide.com
     # DEV: Mount source code for hot reload
     volumes:
       - ./frontend/src:/app/src

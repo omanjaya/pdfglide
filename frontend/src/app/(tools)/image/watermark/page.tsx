@@ -23,7 +23,7 @@ import {
   FileText,
   Building2
 } from 'lucide-react';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/Button';
 import { addImageWatermark, TaskResponse } from '@/lib/api';
 

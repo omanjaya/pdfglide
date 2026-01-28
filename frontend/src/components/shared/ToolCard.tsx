@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { LucideIcon } from 'lucide-react';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 interface ToolCardProps {

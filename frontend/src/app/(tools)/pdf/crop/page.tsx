@@ -19,7 +19,7 @@ import {
   Maximize2,
   RotateCcw
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/card';
 import { cropPdf, TaskResponse } from '@/lib/api';
 
 type Status = 'idle' | 'preview' | 'processing' | 'completed' | 'error';

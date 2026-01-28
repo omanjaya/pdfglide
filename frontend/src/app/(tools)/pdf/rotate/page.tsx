@@ -12,10 +12,9 @@ import {
   Loader2,
   Copy,
   CheckCircle2,
-  AlertCircle,
-  RotateCwSquare
+  AlertCircle
 } from 'lucide-react';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/Button';
 import { rotatePdf, TaskResponse } from '@/lib/api';
 
@@ -243,7 +242,7 @@ export default function RotatePdfPage() {
             {/* Options */}
             <Card className="p-6">
               <h3 className="mb-6 flex items-center gap-2 font-semibold text-gray-900">
-                <RotateCwSquare className="h-5 w-5 text-purple-500" />
+                <RotateCw className="h-5 w-5 text-purple-500" />
                 Rotation Options
               </h3>
 

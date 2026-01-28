@@ -17,7 +17,7 @@ import {
   Camera,
   LucideIcon
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/card';
 import { api, TaskResponse } from '@/lib/api';
 
 type Status = 'idle' | 'preview' | 'processing' | 'completed' | 'error';

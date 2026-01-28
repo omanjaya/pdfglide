@@ -6,7 +6,7 @@ import { ToolLayout } from '@/components/shared/ToolLayout';
 import { FileUploader } from '@/components/shared/FileUploader';
 import { ProcessingStatus } from '@/components/shared/ProcessingStatus';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/Label';
 import {
   Select,

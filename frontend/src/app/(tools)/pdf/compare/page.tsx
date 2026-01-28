@@ -16,7 +16,7 @@ import {
   FileSearch,
   ArrowLeftRight
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/card';
 import { comparePdfs, TaskResponse } from '@/lib/api';
 
 type Status = 'idle' | 'preview' | 'processing' | 'completed' | 'error';

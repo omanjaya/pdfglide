@@ -21,7 +21,7 @@ import {
   Copyright,
   Building2
 } from 'lucide-react';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/Button';
 import { addWatermark, TaskResponse } from '@/lib/api';
 

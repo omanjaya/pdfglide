@@ -6,7 +6,7 @@ import { ToolLayout } from '@/components/shared/ToolLayout';
 import { FileUploader } from '@/components/shared/FileUploader';
 import { ProcessingStatus } from '@/components/shared/ProcessingStatus';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/card';
 import { wordToPdf, TaskResponse } from '@/lib/api';
 
 type Status = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';

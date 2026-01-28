@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { ToolLayout } from '@/components/shared/ToolLayout';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/Label';
 import { api, getDownloadUrl } from '@/lib/api';
 

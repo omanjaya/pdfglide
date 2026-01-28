@@ -14,10 +14,10 @@ import {
   Check,
   GripVertical,
   Trash2,
-  Images,
+  Image,
   Layers
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/card';
 import { imageToPdf, TaskResponse } from '@/lib/api';
 
 type Status = 'idle' | 'preview' | 'processing' | 'completed' | 'error';
@@ -215,7 +215,7 @@ export default function ImageToPdfPage() {
                 <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center mb-6 transition-all duration-300 ${
                   isDragging ? 'bg-pink-500 scale-110' : 'bg-gradient-to-br from-pink-500 to-fuchsia-600'
                 }`}>
-                  <Images className="h-10 w-10 text-white" />
+                  <Image className="h-10 w-10 text-white" />
                 </div>
                 <h3 className="text-xl font-semibold text-gray-800 mb-2">
                   {isDragging ? 'Drop your images here' : 'Upload images'}
