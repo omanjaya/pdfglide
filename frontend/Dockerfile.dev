@@ -1,0 +1,22 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies
+RUN apk add --no-cache libc6-compat
+
+# Copy package files and configs
+COPY package.json package-lock.json* ./
+COPY tailwind.config.ts postcss.config.js next.config.js tsconfig.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Environment
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=development
+
+EXPOSE 3000
+
+# Run development server with hot reload
+CMD ["npm", "run", "dev"]

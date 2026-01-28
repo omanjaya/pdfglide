@@ -69,8 +69,8 @@ class PDFFormFiller(BaseProcessor):
                     if value is None:
                         value = ""
 
-                    # Get default value
-                    default_value = widget.field_default_value
+                    # Get default value (may not exist in all PyMuPDF versions)
+                    default_value = getattr(widget, 'field_default_value', None)
 
                     # Get rectangle
                     rect = widget.rect
@@ -273,7 +273,7 @@ class PDFFormFiller(BaseProcessor):
 
                 for widget in page.widgets():
                     try:
-                        default_value = widget.field_default_value
+                        default_value = getattr(widget, 'field_default_value', None)
                         if default_value is not None:
                             widget.field_value = default_value
                         else:

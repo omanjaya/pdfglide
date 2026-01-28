@@ -127,9 +127,11 @@ class FileHandler:
         file_id = file_id or FileHandler.generate_file_id()
         original_name = FileHandler.sanitize_filename(file.filename or "unnamed")
 
-        # Get extension from original filename
-        ext = Path(original_name).suffix
-        stored_name = f"{file_id}{ext}"
+        # Get extension and stem from original filename
+        original_path = Path(original_name)
+        ext = original_path.suffix
+        stem = original_path.stem[:50]  # Limit length
+        stored_name = f"{file_id}_{stem}{ext}"
         file_path = directory / stored_name
 
         # Ensure directory exists

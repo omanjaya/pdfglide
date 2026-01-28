@@ -71,3 +71,68 @@ class BaseService(ABC):
     def get_output_path(self, file_id: str, extension: str) -> Path:
         """Get output file path."""
         return self.processed_dir / f"{file_id}{extension}"
+
+    @staticmethod
+    def generate_output_name(
+        input_path: Path,
+        operation: str,
+        extension: str = ".pdf"
+    ) -> str:
+        """
+        Generate output filename based on input filename and operation.
+
+        Args:
+            input_path: Path to the input file
+            operation: Name of the operation (e.g., 'merged', 'compressed')
+            extension: Output file extension
+
+        Returns:
+            Filename like 'document_merged.pdf'
+        """
+        # Get filename stem
+        stem = input_path.stem
+
+        # Handle stored files with pattern: {uuid}_{timestamp}_{order}_{original_stem}
+        # Try to extract original stem by skipping first 3 underscore-separated parts
+        parts = stem.split("_")
+        if len(parts) > 3:
+            # Skip uuid, timestamp, order parts and join the rest
+            stem = "_".join(parts[3:])
+
+        # Sanitize: remove special chars, limit length
+        stem = "".join(c for c in stem if c.isalnum() or c in "-_ ").strip()
+        stem = stem[:50] if len(stem) > 50 else stem
+        stem = stem or "file"
+        return f"{stem}_{operation}{extension}"
+
+    @staticmethod
+    def generate_multi_output_name(
+        input_paths: list[Path],
+        operation: str,
+        extension: str = ".pdf"
+    ) -> str:
+        """
+        Generate output filename for multi-file operations.
+
+        Args:
+            input_paths: List of input file paths
+            operation: Name of the operation
+            extension: Output file extension
+
+        Returns:
+            Filename like 'document1_merged.pdf' (based on first file)
+        """
+        if input_paths:
+            stem = input_paths[0].stem
+
+            # Handle stored files with pattern: {uuid}_{timestamp}_{order}_{original_stem}
+            parts = stem.split("_")
+            if len(parts) > 3:
+                stem = "_".join(parts[3:])
+
+            stem = "".join(c for c in stem if c.isalnum() or c in "-_ ").strip()
+            stem = stem[:50] if len(stem) > 50 else stem
+            stem = stem or "files"
+        else:
+            stem = "files"
+        return f"{stem}_{operation}{extension}"

@@ -4,9 +4,17 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y \
     # LibreOffice for document conversion
     libreoffice \
-    # OCR
+    # OCR with multiple languages
     tesseract-ocr \
     tesseract-ocr-eng \
+    tesseract-ocr-ind \
+    tesseract-ocr-chi-sim \
+    tesseract-ocr-jpn \
+    tesseract-ocr-kor \
+    tesseract-ocr-ara \
+    tesseract-ocr-deu \
+    tesseract-ocr-fra \
+    tesseract-ocr-spa \
     # PDF processing
     poppler-utils \
     ghostscript \

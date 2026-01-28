@@ -6,8 +6,10 @@ PDFGlide adalah multi-format file processing tool (clone iLovePDF) yang mendukun
 ## Tech Stack
 - **Frontend**: Next.js 14 + TypeScript + Tailwind CSS + shadcn/ui
 - **Backend**: Python 3.11+ + FastAPI
-- **Database**: SQLite + SQLAlchemy
+- **Database**: PostgreSQL + SQLAlchemy (async)
 - **Processing**: pikepdf, Pillow, python-docx, openpyxl, LibreOffice headless
+- **OCR**: Tesseract (multi-language: eng, ind, chi_sim, jpn, kor, ara, deu, fra, spa)
+- **Queue**: Celery + Redis
 
 ## Project Structure
 ```
@@ -120,7 +122,29 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ## Running the Project
 
-### Backend
+### Docker (Recommended - with Hot Reload)
+```bash
+# Start all services
+docker compose up -d
+
+# View logs
+docker compose logs -f backend
+
+# Rebuild after requirements.txt change
+docker compose build backend
+docker compose up -d backend
+```
+
+**Hot Reload sudah aktif** - Backend akan auto-reload saat file di `backend/app/` berubah.
+
+Services:
+- **Backend**: http://localhost:8000
+- **Frontend**: http://localhost:3000
+- **Flower** (Celery monitor): http://localhost:5555
+- **PostgreSQL**: localhost:5432
+- **Redis**: localhost:6379
+
+### Backend (Manual)
 ```bash
 cd backend
 python -m venv venv
@@ -149,3 +173,35 @@ npm run build                   # Production build
 npm run lint                    # Lint
 npm run test                    # Run tests
 ```
+
+## OCR Features (PDF to Word)
+
+Fitur OCR dengan Tesseract untuk convert scanned PDF ke Word:
+
+**Quality Presets:**
+- `draft`: 150 DPI, no preprocessing (cepat)
+- `standard`: 200 DPI, with preprocessing (default)
+- `high`: 300 DPI, with preprocessing (akurat)
+
+**Image Preprocessing:**
+- Grayscale conversion
+- Contrast enhancement (1.5x)
+- Sharpness enhancement (1.2x)
+- Denoise (median filter)
+- Binarization (threshold 140)
+
+**Supported Languages:**
+- `eng` - English
+- `ind` - Indonesian
+- `chi_sim` - Chinese (Simplified)
+- `jpn` - Japanese
+- `kor` - Korean
+- `ara` - Arabic
+- `deu` - German
+- `fra` - French
+- `spa` - Spanish
+
+**Layout Detection:**
+- Auto-detect headings (uppercase, title case, short lines)
+- Preserve paragraph structure
+- Block-based text grouping

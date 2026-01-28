@@ -84,12 +84,37 @@ async def remove_background(
     db: DbSession,
     service: ImageServiceDep,
     file: UploadFile = File(..., description="Image file"),
+    bg_color: str = Form(default=None, description="Background color: transparent (default), white, black, or hex #RRGGBB"),
+    output_format: str = Form(default="png", description="Output format: png, jpeg, webp"),
+    quality: int = Form(default=90, ge=1, le=100, description="Quality for JPEG/WebP (1-100)"),
 ):
-    """Remove background from image using AI."""
+    """
+    Remove background from image using AI.
+
+    Automatically detects and removes background from any image -
+    works for people, products, animals, and objects.
+
+    - **bg_color**: Background color
+      - None/empty: Transparent (PNG only)
+      - white, black: Named colors
+      - #RRGGBB: Custom hex color
+    - **output_format**: Output format (png, jpeg, webp)
+    - **quality**: Quality for JPEG/WebP (1-100)
+    """
     return await handle_task(
         db, service, "image_remove_bg",
-        process_func=lambda paths: service.remove_background(paths[0]),
+        process_func=lambda paths: service.remove_background(
+            paths[0],
+            bg_color=bg_color if bg_color else None,
+            output_format=output_format,
+            quality=quality,
+        ),
         file=file,
+        metadata={
+            "bg_color": bg_color,
+            "output_format": output_format,
+            "quality": quality,
+        },
     )
 
 

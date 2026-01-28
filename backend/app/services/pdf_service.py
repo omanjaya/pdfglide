@@ -84,7 +84,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="merged.pdf",
+            file_name=self.generate_multi_output_name(files, "merged", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -105,7 +105,7 @@ class PDFService(BaseService):
 
             return ProcessedResult(
                 id=output_id,
-                file_name="split_pages.zip",
+                file_name=self.generate_output_name(file, "split", ".zip"),
                 file_path=zip_path,
                 file_size=zip_path.stat().st_size,
                 mime_type="application/zip",
@@ -113,7 +113,7 @@ class PDFService(BaseService):
         else:
             return ProcessedResult(
                 id=output_id,
-                file_name=result_files[0].name,
+                file_name=self.generate_output_name(file, "split", ".pdf"),
                 file_path=result_files[0],
                 file_size=result_files[0].stat().st_size,
                 mime_type="application/pdf",
@@ -143,7 +143,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="compressed.pdf",
+            file_name=self.generate_output_name(file, "compressed", ".pdf"),
             file_path=result_path,
             file_size=result_path.stat().st_size,
             mime_type="application/pdf",
@@ -168,7 +168,7 @@ class PDFService(BaseService):
 
             return ProcessedResult(
                 id=output_id,
-                file_name="pdf_images.zip",
+                file_name=self.generate_output_name(file, "images", ".zip"),
                 file_path=zip_path,
                 file_size=zip_path.stat().st_size,
                 mime_type="application/zip",
@@ -176,7 +176,7 @@ class PDFService(BaseService):
         else:
             return ProcessedResult(
                 id=output_id,
-                file_name=result_files[0].name,
+                file_name=self.generate_output_name(file, "image", f".{output_format}"),
                 file_path=result_files[0],
                 file_size=result_files[0].stat().st_size,
                 mime_type=f"image/{output_format}",
@@ -191,7 +191,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="images.pdf",
+            file_name=self.generate_multi_output_name(files, "converted", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -211,7 +211,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="rotated.pdf",
+            file_name=self.generate_output_name(file, "rotated", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -238,7 +238,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="watermarked.pdf",
+            file_name=self.generate_output_name(file, "watermarked", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -263,7 +263,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="numbered.pdf",
+            file_name=self.generate_output_name(file, "numbered", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -289,7 +289,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="protected.pdf",
+            file_name=self.generate_output_name(file, "protected", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -308,7 +308,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="unlocked.pdf",
+            file_name=self.generate_output_name(file, "unlocked", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -327,7 +327,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="organized.pdf",
+            file_name=self.generate_output_name(file, "organized", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -346,7 +346,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="pages_deleted.pdf",
+            file_name=self.generate_output_name(file, "edited", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -365,7 +365,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="extracted.pdf",
+            file_name=self.generate_output_name(file, "extracted", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -382,7 +382,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="repaired.pdf",
+            file_name=self.generate_output_name(file, "repaired", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -405,7 +405,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="cropped.pdf",
+            file_name=self.generate_output_name(file, "cropped", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -432,7 +432,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="signed.pdf",
+            file_name=self.generate_output_name(file, "signed", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -457,7 +457,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="metadata_updated.pdf",
+            file_name=self.generate_output_name(file, "edited", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -476,7 +476,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="extracted_tables.xlsx",
+            file_name=self.generate_output_name(file, "tables", ".xlsx"),
             file_path=result_path,
             file_size=result_path.stat().st_size,
             mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -497,7 +497,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="presentation.pptx",
+            file_name=self.generate_output_name(file, "presentation", ".pptx"),
             file_path=result_path,
             file_size=result_path.stat().st_size,
             mime_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -519,7 +519,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="redacted.pdf",
+            file_name=self.generate_output_name(file, "redacted", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -538,7 +538,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="redacted.pdf",
+            file_name=self.generate_output_name(file, "redacted", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -556,11 +556,11 @@ class PDFService(BaseService):
         if output_mode == "visual":
             output_path = self.get_output_path(output_id, ".pdf")
             mime_type = "application/pdf"
-            file_name = "comparison.pdf"
+            ext = ".pdf"
         else:
             output_path = self.get_output_path(output_id, ".txt")
             mime_type = "text/plain"
-            file_name = "comparison.txt"
+            ext = ".txt"
 
         result_path = await self.comparator.execute(
             file1, file2, output_path, output_mode=output_mode
@@ -568,7 +568,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name=file_name,
+            file_name=self.generate_output_name(file1, "comparison", ext),
             file_path=result_path,
             file_size=result_path.stat().st_size,
             mime_type=mime_type,
@@ -587,7 +587,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name=f"archive_pdfa-{pdfa_level}.pdf",
+            file_name=self.generate_output_name(file, f"pdfa-{pdfa_level}", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -613,7 +613,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="edited.pdf",
+            file_name=self.generate_output_name(file, "edited", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -639,7 +639,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="edited.pdf",
+            file_name=self.generate_output_name(file, "edited", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -664,7 +664,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="commented.pdf",
+            file_name=self.generate_output_name(file, "commented", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -715,7 +715,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="text_replaced.pdf",
+            file_name=self.generate_output_name(file, "edited", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -757,7 +757,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="form_filled.pdf",
+            file_name=self.generate_output_name(file, "filled", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -884,7 +884,7 @@ class PDFService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name="edited.pdf",
+            file_name=self.generate_output_name(file, "edited", ".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",

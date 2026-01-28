@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database (internal only - no public port)
   postgres:
@@ -64,9 +62,18 @@ services:
       # Parallel processing for large files
       - PARALLEL_PROCESSING_THRESHOLD=52428800
       - PARALLEL_CHUNK_PAGES=50
+      # AI Services (Z.ai)
+      - ZAI_API_KEY=${ZAI_API_KEY:-}
+      - ZAI_MODEL=${ZAI_MODEL:-glm-4.6v-flash}
     volumes:
       - backend_storage:/app/storage
-    # SECURITY: Port removed - access via nginx only
+      # DEV: Mount source code for hot reload
+      - ./backend/app:/app/app:ro
+    # DEV: Expose port for local development (remove in production)
+    ports:
+      - "8000:8000"
+    # DEV: Enable hot reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       postgres:
         condition: service_healthy
@@ -184,6 +191,9 @@ services:
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
+      # AI Services (Z.ai) - needed for PDF to Word AI conversion
+      - ZAI_API_KEY=${ZAI_API_KEY:-}
+      - ZAI_MODEL=${ZAI_MODEL:-glm-4.6v-flash}
     volumes:
       - backend_storage:/app/storage
     depends_on:
@@ -217,13 +227,23 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        - NEXT_PUBLIC_API_URL=https://pdfglide.com
+      dockerfile: Dockerfile.dev
     container_name: fileforge-frontend
     restart: unless-stopped
     environment:
-      - NEXT_PUBLIC_API_URL=https://pdfglide.com
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - WATCHPACK_POLLING=true
+    # DEV: Expose port for local development
+    ports:
+      - "3000:3000"
+    # DEV: Mount source code for hot reload
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/tailwind.config.ts:/app/tailwind.config.ts
+      - ./frontend/postcss.config.js:/app/postcss.config.js
+      - ./frontend/next.config.js:/app/next.config.js
+      - ./frontend/tsconfig.json:/app/tsconfig.json
     depends_on:
       - backend
 

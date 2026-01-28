@@ -54,22 +54,55 @@ async def pdf_to_word(
     db: DbSession,
     service: DocumentServiceDep,
     file: UploadFile = File(..., description="PDF document"),
-    use_ai: bool = Form(default=True, description="Use AI-powered conversion (recommended)"),
+    use_ai: bool = Form(default=False, description="Use AI-powered conversion (slower but better quality)"),
     quality: str = Form(default="standard", description="Conversion quality: draft, standard, high"),
+    lang: str = Form(default="eng", description="OCR language: eng, ind, chi_sim, jpn, kor, ara, deu, fra, spa"),
+    preserve_layout: bool = Form(default=True, description="Try to preserve document layout and detect headings"),
+    mode: str = Form(default="standard", description="Conversion mode: standard, exact"),
+    ocr_engine: str = Form(default="tesseract", description="OCR engine: tesseract (stable), surya (experimental), openrouter (AI Vision - best accuracy)"),
+    document_type: str = Form(default="general", description="Document type for AI Vision: general, academic, form, invoice, legal, report, letter"),
 ):
     """
-    Convert PDF to Word document.
+    Convert PDF to Word document using OCR.
 
-    - **use_ai**: Enable AI-powered conversion for much better results (default: true)
+    - **use_ai**: Enable AI-powered conversion (default: false)
     - **quality**: Conversion quality level
-      - draft: Faster, lower accuracy
-      - standard: Balanced (recommended)
-      - high: Best accuracy, slower
+      - draft: Faster (150 DPI)
+      - standard: Balanced (200 DPI)
+      - high: Best accuracy (300 DPI)
+    - **lang**: OCR language code
+      - eng: English
+      - ind: Indonesian
+      - chi_sim: Chinese (Simplified)
+      - jpn: Japanese
+      - kor: Korean
+      - ara: Arabic
+      - deu: German
+      - fra: French
+      - spa: Spanish
+    - **preserve_layout**: Detect and preserve headings, paragraphs structure
+    - **mode**: Conversion mode
+      - standard: Normal OCR with layout detection (default)
+      - exact: Exact positioning - document looks like original
+    - **ocr_engine**: OCR engine to use
+      - tesseract: Fast, stable, good for most documents (default)
+      - surya: Experimental, better accuracy when working
+      - openrouter: AI Vision (Qwen-VL) - best accuracy for scanned docs, requires API key
+    - **document_type**: Document type for specialized AI prompts (openrouter only)
+      - general: Default, works for most documents
+      - academic: Research papers, journals, theses
+      - form: Forms, applications, questionnaires
+      - invoice: Invoices, receipts, bills
+      - legal: Contracts, agreements, legal documents
+      - report: Business reports, analysis
+      - letter: Letters, correspondence, memos
     """
     handler = TaskHandler(db, service, "pdf_to_word")
     return await handler.execute(
         process_func=lambda paths: service.pdf_to_word(
-            paths[0], use_ai=use_ai, quality=quality
+            paths[0], use_ai=use_ai, quality=quality, lang=lang,
+            preserve_layout=preserve_layout, mode=mode, ocr_engine=ocr_engine,
+            document_type=document_type
         ),
         file=file,
     )

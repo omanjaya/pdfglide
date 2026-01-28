@@ -38,6 +38,7 @@ playwright>=1.40.0
 
 # OCR
 pytesseract>=0.3.10
+surya-ocr>=0.8.0
 
 # QR Code
 qrcode[pil]>=7.4.2

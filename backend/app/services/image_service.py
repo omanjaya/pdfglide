@@ -56,7 +56,7 @@ class ImageService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name=f"compressed{ext}",
+            file_name=self.generate_output_name(file, "compressed", ext),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type=mime_type,
@@ -97,7 +97,7 @@ class ImageService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name=f"resized{ext}",
+            file_name=self.generate_output_name(file, "resized", ext),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type=mime_type,
@@ -135,25 +135,58 @@ class ImageService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name=f"converted{ext}",
+            file_name=self.generate_output_name(file, "converted", ext),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type=mime_type,
         )
 
-    async def remove_background(self, file: Path) -> ProcessedResult:
-        """Remove background from image."""
-        output_id = self.generate_output_id()
-        output_path = self.get_output_path(output_id, ".png")
+    async def remove_background(
+        self,
+        file: Path,
+        bg_color: str | None = None,
+        output_format: str = "png",
+        quality: int = 90,
+    ) -> ProcessedResult:
+        """
+        Remove background from image.
 
-        result_path = await self.bg_remover.execute(file, output_path)
+        Args:
+            file: Input image file path
+            bg_color: Background color (None=transparent, "white", "#RRGGBB", etc.)
+            output_format: Output format (png, jpeg, webp)
+            quality: Quality for JPEG/WebP (1-100)
+        """
+        output_id = self.generate_output_id()
+
+        # Determine extension and mime type based on format
+        fmt = output_format.lower()
+        if fmt in ("jpg", "jpeg"):
+            ext = ".jpg"
+            mime_type = "image/jpeg"
+        elif fmt == "webp":
+            ext = ".webp"
+            mime_type = "image/webp"
+        else:
+            ext = ".png"
+            mime_type = "image/png"
+
+        output_path = self.get_output_path(output_id, ext)
+
+        result_path = await self.bg_remover.execute(
+            file,
+            output_path,
+            bg_color=bg_color,
+            output_format=output_format,
+            quality=quality,
+        )
 
         return ProcessedResult(
             id=output_id,
-            file_name="no_background.png",
+            file_name=self.generate_output_name(file, "nobg", ext),
             file_path=result_path,
             file_size=result_path.stat().st_size,
-            mime_type="image/png",
+            mime_type=mime_type,
         )
 
     async def add_watermark(
@@ -190,7 +223,7 @@ class ImageService(BaseService):
 
         return ProcessedResult(
             id=output_id,
-            file_name=f"watermarked{ext}",
+            file_name=self.generate_output_name(file, "watermarked", ext),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type=mime_type,

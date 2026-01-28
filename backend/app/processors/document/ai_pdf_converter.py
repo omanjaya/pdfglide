@@ -21,7 +21,7 @@ class AIPDFConverter(BaseProcessor):
     """Convert PDF to Word using Z.ai Vision AI."""
 
     # Z.ai API configuration
-    ZAI_BASE_URL = "https://open.z.ai/api/paas/v4"
+    ZAI_BASE_URL = "https://api.z.ai/api/paas/v4"
 
     def __init__(self, output_dir: Path, api_key: Optional[str] = None):
         super().__init__(output_dir)
@@ -70,14 +70,17 @@ class AIPDFConverter(BaseProcessor):
             # Convert PDF pages to images
             images = await self._pdf_to_images(file, dpi)
 
-            # Process each page with AI
+            # Process pages sequentially to avoid Z.ai rate limits
             page_contents = []
             for i, image in enumerate(images):
                 content = await self._extract_content_from_image(image, model, i + 1, len(images))
                 page_contents.append(content)
+                # Add delay between pages to respect rate limits
+                if i < len(images) - 1:
+                    await asyncio.sleep(1.0)
 
             # Create Word document from extracted content
-            await self._create_docx(page_contents, output_path)
+            await self._create_docx(list(page_contents), output_path)
 
             return output_path
 

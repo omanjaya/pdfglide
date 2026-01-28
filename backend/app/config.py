@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     ZAI_API_KEY: Optional[str] = None
     ZAI_MODEL: str = "glm-4.6v-flash"  # Options: glm-4.6v-flash (free), glm-4.6v-flashx, glm-4.6v
 
+    # OpenRouter API for vision models (Qwen-VL, etc.)
+    OPENROUTER_API_KEY: Optional[str] = None
+    OPENROUTER_MODEL: str = "qwen/qwen2.5-vl-72b-instruct:free"  # Free tier model
+
     # ==================== JWT Authentication ====================
     JWT_SECRET_KEY: str = "change-this-in-production-to-a-random-secret"
     JWT_ALGORITHM: str = "HS256"
