@@ -28,7 +28,8 @@ router = APIRouter()
 class RetentionSettings(BaseModel):
     """Current retention settings."""
 
-    file_expiry_hours: int
+    file_expiry_minutes: int
+    delete_after_download: bool
     upload_retention_hours: int
     orphan_task_retention_hours: int
     usage_stats_retention_days: int
@@ -62,7 +63,8 @@ async def get_retention_settings():
     return APIResponse(
         success=True,
         data=RetentionSettings(
-            file_expiry_hours=settings.FILE_EXPIRY_HOURS,
+            file_expiry_minutes=settings.FILE_EXPIRY_MINUTES,
+            delete_after_download=settings.DELETE_AFTER_DOWNLOAD,
             upload_retention_hours=settings.UPLOAD_RETENTION_HOURS,
             orphan_task_retention_hours=settings.ORPHAN_TASK_RETENTION_HOURS,
             usage_stats_retention_days=settings.USAGE_STATS_RETENTION_DAYS,
@@ -175,7 +177,7 @@ async def gdpr_export_info():
                 "Usage statistics (aggregated, no personal data)",
             ],
             "retention_periods": {
-                "output_files": f"{settings.FILE_EXPIRY_HOURS} hours",
+                "output_files": f"{settings.FILE_EXPIRY_MINUTES} minutes (delete after download: {settings.DELETE_AFTER_DOWNLOAD})",
                 "input_files": f"{settings.UPLOAD_RETENTION_HOURS} hours",
                 "audit_logs": f"{settings.AUDIT_LOG_RETENTION_DAYS} days",
                 "usage_stats": f"{settings.USAGE_STATS_RETENTION_DAYS} days",

@@ -1,16 +1,17 @@
-"""Download endpoint."""
+"""Download endpoint with delete-after-download security."""
 
+import asyncio
 import re
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from app.api.deps import DbSession
 from app.config import settings
-from app.models.task import OutputFile, Task
+from app.models.task import OutputFile, Task, InputFile
 from app.schemas.response import APIResponse
 from app.schemas.task import TaskStatus, TaskStatusEnum
 from app.core.logging import get_logger
@@ -65,13 +66,70 @@ def validate_filename_format(filename: str) -> bool:
     return bool(re.match(pattern, filename, re.IGNORECASE))
 
 
+async def cleanup_task_files(task_id: str, file_path: Path, db_url: str):
+    """
+    Background task to delete files after download.
+
+    Deletes:
+    - The output file from disk
+    - Associated input files from disk
+    - Database records for the task
+    """
+    # Small delay to ensure file transfer is complete
+    await asyncio.sleep(2)
+
+    try:
+        # Delete output file from disk
+        if file_path.exists():
+            file_path.unlink()
+            logger.info(f"Deleted output file: {file_path}")
+
+        # Delete input files from disk
+        upload_dir = settings.upload_path / task_id
+        if upload_dir.exists():
+            import shutil
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            logger.info(f"Deleted input directory: {upload_dir}")
+
+        # Clean up database records using sync session
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import Session
+
+        engine = create_engine(db_url)
+        with Session(engine) as session:
+            # Delete output files
+            session.execute(
+                delete(OutputFile).where(OutputFile.task_id == task_id)
+            )
+            # Delete input files
+            session.execute(
+                delete(InputFile).where(InputFile.task_id == task_id)
+            )
+            # Delete task
+            session.execute(
+                delete(Task).where(Task.id == task_id)
+            )
+            session.commit()
+            logger.info(f"Cleaned up database records for task: {task_id}")
+
+    except Exception as e:
+        logger.error(f"Error cleaning up task {task_id}: {e}")
+
+
 @router.get("/download/{file_id}")
 async def download_file(
     request: Request,
     db: DbSession,
+    background_tasks: BackgroundTasks,
     file_id: str,
 ):
-    """Download processed file by ID."""
+    """
+    Download processed file by ID.
+
+    Security features:
+    - File is deleted immediately after download (if DELETE_AFTER_DOWNLOAD=True)
+    - Files auto-expire after FILE_EXPIRY_MINUTES
+    """
     # Validate file_id format (should be alphanumeric with underscore)
     if not re.match(r"^[a-zA-Z0-9_]+$", file_id):
         logger.warning(f"Invalid file_id format attempted: {file_id[:50]}")
@@ -120,17 +178,28 @@ async def download_file(
 
     # Update download count
     output_file.download_count += 1
+    task_id = output_file.task_id
 
     # Log download for audit trail
     await log_download(
         db=db,
         request=request,
-        task_id=output_file.task_id,
+        task_id=task_id,
         file_id=file_id,
         file_name=output_file.file_name,
     )
 
     await db.commit()
+
+    # Schedule cleanup after download if enabled
+    if settings.DELETE_AFTER_DOWNLOAD:
+        background_tasks.add_task(
+            cleanup_task_files,
+            task_id,
+            file_path,
+            settings.DATABASE_URL_SYNC,
+        )
+        logger.info(f"Scheduled cleanup for task {task_id} after download")
 
     return FileResponse(
         path=file_path,

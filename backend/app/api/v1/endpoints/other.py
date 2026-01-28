@@ -106,7 +106,7 @@ async def generate_qr_code(
         result = await service.generate(content, size)
 
         # Save output
-        expires_at = datetime.utcnow() + timedelta(hours=settings.FILE_EXPIRY_HOURS)
+        expires_at = datetime.utcnow() + timedelta(minutes=settings.FILE_EXPIRY_MINUTES)
         db.add(OutputFile(
             id=result.id,
             task_id=task_id,

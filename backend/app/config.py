@@ -36,7 +36,8 @@ class Settings(BaseSettings):
     # File limits
     MAX_UPLOAD_SIZE: int = 104857600  # 100MB
     MAX_FILES_PER_REQUEST: int = 20
-    FILE_EXPIRY_HOURS: int = 1
+    FILE_EXPIRY_MINUTES: int = 5  # Files auto-delete after 5 minutes
+    DELETE_AFTER_DOWNLOAD: bool = True  # Delete file immediately after download
 
     # Data Retention (configurable for GDPR compliance)
     UPLOAD_RETENTION_HOURS: int = 2  # Delete input files after X hours
@@ -112,6 +113,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # Ignore extra fields like deprecated FILE_EXPIRY_HOURS
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod

@@ -60,7 +60,7 @@ def process_pdf_to_word(self, task_id: str, file_path: str):
         update_task_status(task_id, "processing", progress=80)
         publish_progress(task_id, 80)
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         
         update_task_status(task_id, "completed", progress=100)
         publish_progress(task_id, 100, "completed")
@@ -123,7 +123,7 @@ def process_word_to_pdf(self, task_id: str, file_path: str):
         update_task_status(task_id, "processing", progress=80)
         publish_progress(task_id, 80)
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         
         update_task_status(task_id, "completed", progress=100)
         publish_progress(task_id, 100, "completed")
@@ -178,7 +178,7 @@ def process_excel_to_pdf(self, task_id: str, file_path: str):
         finally:
             loop.close()
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         update_task_status(task_id, "completed", progress=100)
         
         return {
@@ -223,7 +223,7 @@ def process_powerpoint_to_pdf(self, task_id: str, file_path: str):
         finally:
             loop.close()
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         update_task_status(task_id, "completed", progress=100)
         
         return {

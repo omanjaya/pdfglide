@@ -77,7 +77,7 @@ def process_image_compress(
         update_task_status(task_id, "processing", progress=80)
         publish_progress(task_id, 80)
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         
         update_task_status(task_id, "completed", progress=100)
         publish_progress(task_id, 100, "completed")
@@ -144,7 +144,7 @@ def process_image_resize(
         finally:
             loop.close()
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         update_task_status(task_id, "completed", progress=100)
         
         return {
@@ -194,7 +194,7 @@ def process_image_remove_background(self, task_id: str, file_path: str):
         finally:
             loop.close()
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         
         update_task_status(task_id, "completed", progress=100)
         publish_progress(task_id, 100, "completed")
@@ -254,7 +254,7 @@ def process_image_convert(
         finally:
             loop.close()
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         update_task_status(task_id, "completed", progress=100)
         
         return {

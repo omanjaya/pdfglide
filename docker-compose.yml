@@ -50,7 +50,8 @@ services:
       # Storage
       - STORAGE_PATH=/app/storage
       - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-2147483648}
-      - FILE_EXPIRY_HOURS=1
+      - FILE_EXPIRY_MINUTES=5
+      - DELETE_AFTER_DOWNLOAD=true
       # Rate limiting
       - RATE_LIMIT_PER_MINUTE=60
       - RATE_LIMIT_PER_HOUR=1000

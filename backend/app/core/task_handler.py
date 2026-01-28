@@ -138,7 +138,7 @@ class TaskHandler:
             result = await process_func(input_paths)
 
             # Save output
-            expires_at = datetime.utcnow() + timedelta(hours=settings.FILE_EXPIRY_HOURS)
+            expires_at = datetime.utcnow() + timedelta(minutes=settings.FILE_EXPIRY_MINUTES)
             output_file = OutputFile(
                 id=result.id,
                 task_id=task_id,

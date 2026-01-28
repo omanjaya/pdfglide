@@ -126,7 +126,7 @@ async def compress_pdf(
         result, stats = await service.compress(file_info.file_path, options)
 
         # Save output
-        expires_at = datetime.utcnow() + timedelta(hours=settings.FILE_EXPIRY_HOURS)
+        expires_at = datetime.utcnow() + timedelta(minutes=settings.FILE_EXPIRY_MINUTES)
         db.add(OutputFile(
             id=result.id,
             task_id=task_id,
@@ -643,7 +643,7 @@ async def compare_pdfs(
         result = await service.compare(file1_info.file_path, file2_info.file_path, output_mode)
 
         # Save output
-        expires_at = datetime.utcnow() + timedelta(hours=settings.FILE_EXPIRY_HOURS)
+        expires_at = datetime.utcnow() + timedelta(minutes=settings.FILE_EXPIRY_MINUTES)
         db.add(OutputFile(
             id=result.id,
             task_id=task_id,
@@ -883,7 +883,7 @@ async def replace_text_in_pdf(
 
         result, replaced_count = await service.replace_text(file_info.file_path, parsed_replacements)
 
-        expires_at = datetime.utcnow() + timedelta(hours=settings.FILE_EXPIRY_HOURS)
+        expires_at = datetime.utcnow() + timedelta(minutes=settings.FILE_EXPIRY_MINUTES)
         db.add(OutputFile(
             id=result.id,
             task_id=task_id,
@@ -1021,7 +1021,7 @@ async def fill_form(
 
         result, filled_count = await service.fill_form(file_info.file_path, values, flatten)
 
-        expires_at = datetime.utcnow() + timedelta(hours=settings.FILE_EXPIRY_HOURS)
+        expires_at = datetime.utcnow() + timedelta(minutes=settings.FILE_EXPIRY_MINUTES)
         db.add(OutputFile(
             id=result.id,
             task_id=task_id,
@@ -1152,7 +1152,7 @@ async def edit_pdf_combined(
 
         result = await service.edit_combined(file_info.file_path, parsed_ops, image_paths or None)
 
-        expires_at = datetime.utcnow() + timedelta(hours=settings.FILE_EXPIRY_HOURS)
+        expires_at = datetime.utcnow() + timedelta(minutes=settings.FILE_EXPIRY_MINUTES)
         db.add(OutputFile(
             id=result.id,
             task_id=task_id,

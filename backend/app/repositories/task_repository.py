@@ -63,7 +63,7 @@ class TaskRepository:
         mime_type: str,
     ) -> OutputFile:
         """Save output file record."""
-        expires_at = datetime.utcnow() + timedelta(hours=settings.FILE_EXPIRY_HOURS)
+        expires_at = datetime.utcnow() + timedelta(minutes=settings.FILE_EXPIRY_MINUTES)
         output_file = OutputFile(
             id=result_id,
             task_id=task_id,

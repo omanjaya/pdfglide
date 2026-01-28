@@ -69,13 +69,13 @@ def update_task_status(
         session.close()
 
 
-def save_output_file(task_id: str, result, expires_hours: int = 1):
+def save_output_file(task_id: str, result, expires_minutes: int = 5):
     """Save output file record to database."""
     from app.models.task import OutputFile
-    
+
     session = get_sync_session()
     try:
-        expires_at = datetime.utcnow() + timedelta(hours=expires_hours)
+        expires_at = datetime.utcnow() + timedelta(minutes=expires_minutes)
         
         output_file = OutputFile(
             id=result.id,
@@ -164,7 +164,7 @@ def process_pdf_merge(self, task_id: str, file_paths: list[str]):
         publish_progress(task_id, 80)
         
         # Save output
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         
         update_task_status(task_id, "completed", progress=100)
         publish_progress(task_id, 100, "completed")
@@ -260,7 +260,7 @@ def process_pdf_compress(
         publish_progress(task_id, 80)
         
         # Save output
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         
         update_task_status(
             task_id, "completed", progress=100,
@@ -331,7 +331,7 @@ def process_pdf_split(self, task_id: str, file_path: str, pages: str):
         finally:
             loop.close()
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         update_task_status(task_id, "completed", progress=100)
         
         return {
@@ -390,7 +390,7 @@ def process_pdf_rotate(
         finally:
             loop.close()
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         update_task_status(task_id, "completed", progress=100)
         
         return {
@@ -449,7 +449,7 @@ def process_pdf_watermark(
         finally:
             loop.close()
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         update_task_status(task_id, "completed", progress=100)
         
         return {
@@ -506,7 +506,7 @@ def process_pdf_protect(
         finally:
             loop.close()
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         update_task_status(task_id, "completed", progress=100)
         
         return {
@@ -551,7 +551,7 @@ def process_pdf_unlock(self, task_id: str, file_path: str, password: str = ""):
         finally:
             loop.close()
         
-        save_output_file(task_id, result, expires_hours=settings.FILE_EXPIRY_HOURS)
+        save_output_file(task_id, result, expires_minutes=settings.FILE_EXPIRY_MINUTES)
         update_task_status(task_id, "completed", progress=100)
         
         return {

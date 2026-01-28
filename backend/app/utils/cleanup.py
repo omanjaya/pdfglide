@@ -144,10 +144,13 @@ async def cleanup_completed_tasks(hours_old: Optional[int] = None) -> int:
     from app.config import settings
 
     if hours_old is None:
-        hours_old = settings.FILE_EXPIRY_HOURS + 1  # 1 hour after file expiry
+        # Use minutes from config, add 5 minute buffer
+        minutes_old = settings.FILE_EXPIRY_MINUTES + 5
+        cutoff = datetime.utcnow() - timedelta(minutes=minutes_old)
+    else:
+        cutoff = datetime.utcnow() - timedelta(hours=hours_old)
 
     async with async_session_maker() as session:
-        cutoff = datetime.utcnow() - timedelta(hours=hours_old)
 
         # Find old completed tasks
         result = await session.execute(
