@@ -45,6 +45,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download rembg models for background removal (avoids download at runtime)
+RUN python -c "from rembg import new_session; new_session('u2net_human_seg')" || true
+
 # Copy application code
 COPY . .
 

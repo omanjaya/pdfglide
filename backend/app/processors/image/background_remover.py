@@ -10,6 +10,20 @@ from app.core.exceptions import ProcessingError
 
 logger = logging.getLogger(__name__)
 
+# Cache the rembg session globally to avoid reloading the model on every request
+_rembg_session = None
+
+
+def get_rembg_session():
+    """Get or create cached rembg session for u2net_human_seg model."""
+    global _rembg_session
+    if _rembg_session is None:
+        from rembg import new_session
+        logger.info("Loading rembg u2net_human_seg model (first time only)...")
+        _rembg_session = new_session("u2net_human_seg")
+        logger.info("rembg model loaded and cached")
+    return _rembg_session
+
 
 class BackgroundRemover(BaseProcessor):
     """Remove background from images using AI with fine hair detection."""
@@ -36,7 +50,7 @@ class BackgroundRemover(BaseProcessor):
             Path to output image
         """
         try:
-            from rembg import remove, new_session
+            from rembg import remove
             from PIL import Image, ImageFilter, ImageEnhance
 
             def _remove_bg():
@@ -63,8 +77,8 @@ class BackgroundRemover(BaseProcessor):
                 sharpener = ImageEnhance.Sharpness(enhanced)
                 enhanced = sharpener.enhance(1.2)
 
-                # Use u2net_human_seg for better human/hair detection
-                session = new_session("u2net_human_seg")
+                # Use cached session (u2net_human_seg) for better human/hair detection
+                session = get_rembg_session()
 
                 # Try with alpha matting for better hair edges
                 try:
