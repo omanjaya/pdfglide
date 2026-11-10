@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.services.base import BaseService, ProcessedResult
+from app.utils.naming import build_download_name
 from app.processors.document.office_converter import OfficeConverter
 from app.processors.document.html_converter import HTMLToPDFConverter
 from app.processors.document.pptx_converter import PowerPointToPDFConverter
@@ -37,10 +38,9 @@ class DocumentService(BaseService):
 
         await self.converter.to_pdf(file, output_path)
 
-        original_name = file.stem
         return ProcessedResult(
             id=output_id,
-            file_name=f"{original_name}.pdf",
+            file_name=build_download_name(file, extension=".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -53,10 +53,9 @@ class DocumentService(BaseService):
 
         await self.converter.to_pdf(file, output_path)
 
-        original_name = file.stem
         return ProcessedResult(
             id=output_id,
-            file_name=f"{original_name}.pdf",
+            file_name=build_download_name(file, extension=".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",
@@ -89,10 +88,9 @@ class DocumentService(BaseService):
             quality=quality,
         )
 
-        original_name = file.stem
         return ProcessedResult(
             id=output_id,
-            file_name=f"{original_name}.docx",
+            file_name=build_download_name(file, extension=".docx"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -105,10 +103,9 @@ class DocumentService(BaseService):
 
         await self.pptx_converter.execute(file, output_path)
 
-        original_name = file.stem
         return ProcessedResult(
             id=output_id,
-            file_name=f"{original_name}.pdf",
+            file_name=build_download_name(file, extension=".pdf"),
             file_path=output_path,
             file_size=output_path.stat().st_size,
             mime_type="application/pdf",

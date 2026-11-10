@@ -1,5 +1,6 @@
 """Base service class."""
 
+import zipfile
 from abc import ABC
 from pathlib import Path
 from typing import Optional
@@ -8,6 +9,7 @@ from fastapi import UploadFile
 
 from app.core.file_handler import FileHandler, FileInfo
 from app.config import settings
+from app.utils.naming import build_download_name
 
 
 class ProcessedResult:
@@ -73,6 +75,29 @@ class BaseService(ABC):
         return self.processed_dir / f"{file_id}{extension}"
 
     @staticmethod
+    def create_named_zip(entries: list[tuple[Path, str]], zip_path: Path) -> Path:
+        """
+        Create a ZIP whose entries use user-facing names, not stored names.
+
+        Args:
+            entries: (file on disk, name inside the archive) pairs
+            zip_path: Where to write the archive
+
+        Returns:
+            Path to the created archive
+        """
+        used: set[str] = set()
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for file_path, arcname in entries:
+                candidate, counter = arcname, 1
+                while candidate in used:
+                    counter += 1
+                    candidate = f"{Path(arcname).stem}_{counter}{Path(arcname).suffix}"
+                used.add(candidate)
+                zipf.write(file_path, candidate)
+        return zip_path
+
+    @staticmethod
     def generate_output_name(
         input_path: Path,
         operation: str,
@@ -89,21 +114,7 @@ class BaseService(ABC):
         Returns:
             Filename like 'document_merged.pdf'
         """
-        # Get filename stem
-        stem = input_path.stem
-
-        # Handle stored files with pattern: {uuid}_{timestamp}_{order}_{original_stem}
-        # Try to extract original stem by skipping first 3 underscore-separated parts
-        parts = stem.split("_")
-        if len(parts) > 3:
-            # Skip uuid, timestamp, order parts and join the rest
-            stem = "_".join(parts[3:])
-
-        # Sanitize: remove special chars, limit length
-        stem = "".join(c for c in stem if c.isalnum() or c in "-_ ").strip()
-        stem = stem[:50] if len(stem) > 50 else stem
-        stem = stem or "file"
-        return f"{stem}_{operation}{extension}"
+        return build_download_name(input_path, operation, extension)
 
     @staticmethod
     def generate_multi_output_name(
@@ -122,17 +133,5 @@ class BaseService(ABC):
         Returns:
             Filename like 'document1_merged.pdf' (based on first file)
         """
-        if input_paths:
-            stem = input_paths[0].stem
-
-            # Handle stored files with pattern: {uuid}_{timestamp}_{order}_{original_stem}
-            parts = stem.split("_")
-            if len(parts) > 3:
-                stem = "_".join(parts[3:])
-
-            stem = "".join(c for c in stem if c.isalnum() or c in "-_ ").strip()
-            stem = stem[:50] if len(stem) > 50 else stem
-            stem = stem or "files"
-        else:
-            stem = "files"
-        return f"{stem}_{operation}{extension}"
+        source = input_paths[0] if input_paths else None
+        return build_download_name(source, operation, extension, fallback="files")

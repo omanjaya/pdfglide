@@ -16,6 +16,7 @@ from sqlalchemy import select
 from app.api.deps import DbSession
 from app.models.task import Task, OutputFile
 from app.schemas.response import APIResponse
+from app.utils.naming import clean_download_name
 
 router = APIRouter()
 
@@ -101,7 +102,7 @@ async def get_task_status(
         
         if output_file:
             response["download_url"] = f"/api/v1/download/{output_file.id}"
-            response["file_name"] = output_file.file_name
+            response["file_name"] = clean_download_name(output_file.file_name)
             response["file_size"] = output_file.file_size
             response["expires_at"] = output_file.expires_at.isoformat()
     

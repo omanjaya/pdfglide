@@ -16,6 +16,7 @@ from app.schemas.response import APIResponse
 from app.schemas.task import TaskStatus, TaskStatusEnum
 from app.core.logging import get_logger
 from app.utils.audit import log_download
+from app.utils.naming import clean_download_name
 
 logger = get_logger(__name__)
 
@@ -180,13 +181,16 @@ async def download_file(
     output_file.download_count += 1
     task_id = output_file.task_id
 
+    # Name shown to the user; also cleans legacy rows stored with internal IDs
+    download_name = clean_download_name(output_file.file_name)
+
     # Log download for audit trail
     await log_download(
         db=db,
         request=request,
         task_id=task_id,
         file_id=file_id,
-        file_name=output_file.file_name,
+        file_name=download_name,
     )
 
     await db.commit()
@@ -203,7 +207,7 @@ async def download_file(
 
     return FileResponse(
         path=file_path,
-        filename=output_file.file_name,
+        filename=download_name,
         media_type=output_file.mime_type,
     )
 

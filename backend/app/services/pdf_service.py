@@ -1,10 +1,12 @@
 """PDF processing service."""
 
+import re
 import fitz  # PyMuPDF
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from app.services.base import BaseService, ProcessedResult
+from app.utils.naming import build_download_name
 from app.schemas.file import PDFCompressOptions
 from app.schemas.pdf_edit import (
     TextSearchResult,
@@ -98,10 +100,13 @@ class PDFService(BaseService):
 
         # If multiple files, create a zip
         if len(result_files) > 1:
-            from app.core.file_handler import FileHandler
-
             zip_path = self.get_output_path(output_id, ".zip")
-            await FileHandler.create_zip(result_files, zip_path)
+            entries = []
+            for part in result_files:
+                match = re.search(r"_pages_(\d+-\d+)$", part.stem)
+                label = f"pages_{match.group(1)}" if match else "part"
+                entries.append((part, self.generate_output_name(file, label, ".pdf")))
+            self.create_named_zip(entries, zip_path)
 
             return ProcessedResult(
                 id=output_id,
@@ -161,10 +166,12 @@ class PDFService(BaseService):
 
         # Create a zip if multiple pages
         if len(result_files) > 1:
-            from app.core.file_handler import FileHandler
-
             zip_path = self.get_output_path(output_id, ".zip")
-            await FileHandler.create_zip(result_files, zip_path)
+            entries = [
+                (img, build_download_name(img, fallback="page"))
+                for img in result_files
+            ]
+            self.create_named_zip(entries, zip_path)
 
             return ProcessedResult(
                 id=output_id,

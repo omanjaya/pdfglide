@@ -4,7 +4,9 @@ from datetime import datetime
 from typing import Optional, Any
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.utils.naming import clean_download_name
 
 
 class TaskStatusEnum(str, Enum):
@@ -47,6 +49,12 @@ class TaskResponse(BaseModel):
     download_url: Optional[str] = None
     expires_at: Optional[datetime] = None
     metadata: Optional[dict[str, Any]] = None  # Additional task data (e.g., compression stats)
+
+    @field_validator("file_name")
+    @classmethod
+    def _clean_file_name(cls, value: Optional[str]) -> Optional[str]:
+        """Return the same cleaned name that is stored on OutputFile."""
+        return clean_download_name(value) if value else value
 
     class Config:
         from_attributes = True

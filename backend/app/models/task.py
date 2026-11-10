@@ -4,9 +4,10 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import Column, String, Integer, DateTime, JSON, ForeignKey, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 
 from app.models.database import Base
+from app.utils.naming import clean_download_name
 
 
 class Task(Base):
@@ -69,6 +70,11 @@ class OutputFile(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     task = relationship("Task", back_populates="output_files")
+
+    @validates("file_name")
+    def _clean_file_name(self, key: str, value: str) -> str:
+        """Never persist internal storage identifiers in the user-facing name."""
+        return clean_download_name(value)
 
 
 class UsageStats(Base):

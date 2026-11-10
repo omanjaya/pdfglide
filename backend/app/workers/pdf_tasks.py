@@ -73,6 +73,11 @@ def save_output_file(task_id: str, result, expires_minutes: int = 5):
     """Save output file record to database."""
     from app.models.task import OutputFile
 
+    from app.utils.naming import clean_download_name
+
+    # Clean in place so the worker's returned result carries the stored name.
+    result.file_name = clean_download_name(result.file_name)
+
     session = get_sync_session()
     try:
         expires_at = datetime.utcnow() + timedelta(minutes=expires_minutes)
