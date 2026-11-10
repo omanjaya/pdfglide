@@ -22,12 +22,12 @@ services:
     image: redis:7-alpine
     container_name: pdfglide-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redisSecure2026}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
     volumes:
       - redis_data:/data
     # SECURITY: Removed public port - only accessible within Docker network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redisSecure2026}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -52,15 +52,15 @@ services:
       # Storage
       - STORAGE_PATH=/app/storage
       - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-2147483648}
-      - FILE_EXPIRY_MINUTES=5
+      - FILE_EXPIRY_MINUTES=2
       - DELETE_AFTER_DOWNLOAD=true
       # Rate limiting
       - RATE_LIMIT_PER_MINUTE=60
       - RATE_LIMIT_PER_HOUR=1000
       # Celery & Redis
-      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/2
       - ENABLE_ASYNC_PROCESSING=true
       # Parallel processing for large files
       - PARALLEL_PROCESSING_THRESHOLD=52428800
@@ -70,13 +70,14 @@ services:
       - ZAI_MODEL=${ZAI_MODEL:-glm-4.6v-flash}
     volumes:
       - backend_storage:/app/storage
-      # DEV: Mount source code for hot reload
+      # Source is mounted so backend and workers always run the same code.
+      # After editing backend/app, apply with: docker compose restart backend
       - ./backend/app:/app/app:ro
-    # DEV: Expose port for local development (remove in production)
+    # SECURITY: reachable from the host only (debugging); public traffic goes through nginx
     ports:
-      - "8000:8000"
-    # DEV: Enable hot reload
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - "127.0.0.1:8000:8000"
+    # No --reload in production: a half-saved file must not restart the live API
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,11 +108,12 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
-      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/2
     volumes:
       - backend_storage:/app/storage
+      - ./backend/app:/app/app:ro
     depends_on:
       - redis
       - postgres
@@ -135,11 +137,12 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
-      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/2
     volumes:
       - backend_storage:/app/storage
+      - ./backend/app:/app/app:ro
     depends_on:
       - redis
       - postgres
@@ -163,9 +166,9 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
-      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/2
       - PRELOAD_REMBG=true
     volumes:
       - backend_storage:/app/storage
@@ -193,14 +196,15 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
       - STORAGE_PATH=/app/storage
-      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/2
       # AI Services (Z.ai) - needed for PDF to Word AI conversion
       - ZAI_API_KEY=${ZAI_API_KEY:-}
       - ZAI_MODEL=${ZAI_MODEL:-glm-4.6v-flash}
     volumes:
       - backend_storage:/app/storage
+      - ./backend/app:/app/app:ro
     depends_on:
       - redis
       - postgres
@@ -220,8 +224,8 @@ services:
     restart: unless-stopped
     command: celery -A app.core.celery_app flower --port=5555
     environment:
-      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-redisSecure2026}@redis:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/1
       - DATABASE_URL=${DATABASE_URL}
       - DATABASE_URL_SYNC=${DATABASE_URL_SYNC}
     # SECURITY: Port removed - use SSH tunnel for monitoring
