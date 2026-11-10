@@ -87,6 +87,10 @@ class ImageCompressOptions(BaseModel):
         le=100,
         description="Compression quality (1-100)",
     )
+    strip_metadata: bool = Field(
+        default=True,
+        description="Remove EXIF/GPS metadata (orientation is applied, ICC profile kept)",
+    )
 
 
 class ImageResizeOptions(BaseModel):
@@ -95,6 +99,10 @@ class ImageResizeOptions(BaseModel):
     width: Optional[int] = Field(None, ge=1, le=10000)
     height: Optional[int] = Field(None, ge=1, le=10000)
     maintain_ratio: bool = Field(default=True)
+    fit: Optional[str] = Field(default=None, description="contain, cover or exact (overrides maintain_ratio)")
+    percentage: Optional[float] = Field(default=None, gt=0, le=1000, description="Scale by percent instead of width/height")
+    no_upscale: bool = Field(default=False, description="Never enlarge beyond the source size")
+    quality: int = Field(default=90, ge=1, le=100, description="JPEG/WebP output quality")
 
 
 class ImageConvertOptions(BaseModel):
@@ -105,3 +113,4 @@ class ImageConvertOptions(BaseModel):
         description="Target format: jpg, png, webp, gif",
     )
     quality: int = Field(default=90, ge=1, le=100)
+    background: Optional[str] = Field(default=None, description="Colour replacing transparency for JPEG/BMP (default white)")

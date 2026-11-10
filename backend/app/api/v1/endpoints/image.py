@@ -4,6 +4,8 @@ Image processing endpoints - Clean version.
 Uses TaskHandler for minimal boilerplate.
 """
 
+from typing import Any, Awaitable, Callable, Optional
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 
 from app.api.deps import DbSession, ImageServiceDep
@@ -14,6 +16,37 @@ from app.core.task_handler import handle_task
 
 router = APIRouter()
 
+MAX_WATERMARK_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+async def _run_with_stats(
+    db,
+    service,
+    tool_type: str,
+    process: Callable[[list], Awaitable[Any]],
+    file: UploadFile,
+    metadata: dict,
+):
+    """
+    Run a task through the shared handler and return the processing facts
+    (sizes, dimensions, compression ratio, ...) in ``data.metadata``, the same
+    place the PDF compressor reports its stats.
+    """
+    facts: dict = {}
+
+    async def wrapped(paths):
+        result = await process(paths)
+        facts.update(getattr(result, "stats", None) or {})
+        metadata["result"] = dict(facts)  # also stored with the task record
+        return result
+
+    response = await handle_task(
+        db, service, tool_type, process_func=wrapped, file=file, metadata=metadata
+    )
+    if response.data is not None and facts:
+        response.data.metadata = facts
+    return response
+
 
 @router.post("/compress", response_model=APIResponse[TaskResponse])
 async def compress_image(
@@ -21,15 +54,22 @@ async def compress_image(
     service: ImageServiceDep,
     file: UploadFile = File(..., description="Image file to compress"),
     quality: int = Form(default=80, ge=1, le=100, description="Quality 1-100"),
+    strip_metadata: bool = Form(default=True, description="Remove EXIF/GPS data (orientation is applied, ICC profile kept)"),
 ):
-    """Compress image to reduce file size."""
-    return await handle_task(
+    """
+    Compress image to reduce file size. The format is kept (JPEG, PNG, WebP, GIF).
+
+    `data.metadata` reports original_size, compressed_size, saved_bytes and
+    compression_ratio (percent saved); if the image cannot be made smaller the
+    original bytes are returned and `kept_original` is true.
+    """
+    return await _run_with_stats(
         db, service, "image_compress",
-        process_func=lambda paths: service.compress(
-            paths[0], ImageCompressOptions(quality=quality)
+        lambda paths: service.compress(
+            paths[0], ImageCompressOptions(quality=quality, strip_metadata=strip_metadata)
         ),
-        file=file,
-        metadata={"quality": quality},
+        file,
+        {"quality": quality, "strip_metadata": strip_metadata},
     )
 
 
@@ -41,18 +81,28 @@ async def resize_image(
     width: int = Form(None, ge=1, le=10000, description="Target width"),
     height: int = Form(None, ge=1, le=10000, description="Target height"),
     maintain_ratio: bool = Form(default=True, description="Maintain aspect ratio"),
+    fit: str = Form(default=None, description="contain, cover (fill + crop) or exact; overrides maintain_ratio"),
+    percentage: float = Form(default=None, gt=0, le=1000, description="Scale by percent instead of width/height"),
+    no_upscale: bool = Form(default=False, description="Never enlarge beyond the source size"),
+    quality: int = Form(default=90, ge=1, le=100, description="JPEG/WebP output quality"),
 ):
     """Resize image to specified dimensions."""
-    if width is None and height is None:
+    if width is None and height is None and percentage is None:
         raise HTTPException(status_code=400, detail="Provide width or height")
+    if fit is not None and fit not in ("contain", "cover", "exact"):
+        raise HTTPException(status_code=400, detail="fit must be contain, cover or exact")
 
-    return await handle_task(
+    return await _run_with_stats(
         db, service, "image_resize",
-        process_func=lambda paths: service.resize(
-            paths[0], ImageResizeOptions(width=width, height=height, maintain_ratio=maintain_ratio)
+        lambda paths: service.resize(
+            paths[0],
+            ImageResizeOptions(
+                width=width, height=height, maintain_ratio=maintain_ratio, fit=fit,
+                percentage=percentage, no_upscale=no_upscale, quality=quality,
+            ),
         ),
-        file=file,
-        metadata={"width": width, "height": height, "maintain_ratio": maintain_ratio},
+        file,
+        {"width": width, "height": height, "maintain_ratio": maintain_ratio},
     )
 
 
@@ -62,20 +112,22 @@ async def convert_image(
     service: ImageServiceDep,
     file: UploadFile = File(..., description="Image file to convert"),
     format: str = Form(..., description="Target: jpg, png, webp, gif"),
-    quality: int = Form(default=90, ge=1, le=100, description="Quality 1-100"),
+    quality: int = Form(default=90, ge=1, le=100, description="Quality 1-100 (WebP 100 = lossless)"),
+    background: str = Form(default=None, description="Colour that replaces transparency for JPG (default white)"),
 ):
     """Convert image to different format."""
     valid_formats = ["jpg", "jpeg", "png", "webp", "gif"]
     if format.lower() not in valid_formats:
         raise HTTPException(status_code=400, detail=f"Invalid format. Use: {valid_formats}")
 
-    return await handle_task(
+    return await _run_with_stats(
         db, service, "image_convert",
-        process_func=lambda paths: service.convert(
-            paths[0], ImageConvertOptions(format=format, quality=quality)
+        lambda paths: service.convert(
+            paths[0],
+            ImageConvertOptions(format=format, quality=quality, background=background or None),
         ),
-        file=file,
-        metadata={"format": format, "quality": quality},
+        file,
+        {"format": format, "quality": quality},
     )
 
 
@@ -103,17 +155,17 @@ async def remove_background(
     - **quality**: Quality for JPEG/WebP (1-100)
     - **fast_mode**: Skip alpha matting for faster processing (less detail on hair/edges)
     """
-    return await handle_task(
+    return await _run_with_stats(
         db, service, "image_remove_bg",
-        process_func=lambda paths: service.remove_background(
+        lambda paths: service.remove_background(
             paths[0],
             bg_color=bg_color if bg_color else None,
             output_format=output_format,
             quality=quality,
             fast_mode=fast_mode,
         ),
-        file=file,
-        metadata={
+        file,
+        {
             "bg_color": bg_color,
             "output_format": output_format,
             "quality": quality,
@@ -127,19 +179,31 @@ async def add_watermark(
     db: DbSession,
     service: ImageServiceDep,
     file: UploadFile = File(..., description="Image file"),
-    text: str = Form(..., description="Watermark text"),
-    position: str = Form(default="center"),
+    text: str = Form(default="", description="Watermark text (any script the installed fonts support)"),
+    position: str = Form(default="center", description="top|center|bottom x left|center|right (e.g. top-left, center, bottom-right) or tile"),
     opacity: float = Form(default=0.3, ge=0.1, le=1.0),
-    font_size: int = Form(default=40, ge=10, le=200),
-    color: str = Form(default="white"),
-    rotation: int = Form(default=0, ge=0, le=360),
+    font_size: int = Form(default=40, ge=10, le=200, description="Size for a 1000 px wide picture; scales with the image"),
+    color: str = Form(default="white", description="Colour name or hex code"),
+    rotation: int = Form(default=0, ge=0, le=360, description="Degrees, clockwise"),
+    tile: bool = Form(default=False, description="Repeat the watermark over the whole image"),
+    watermark_image: Optional[UploadFile] = File(default=None, description="Logo to use instead of text"),
+    image_scale: int = Form(default=20, ge=2, le=100, description="Logo width as percent of the image width"),
 ):
-    """Add text watermark to image."""
-    return await handle_task(
+    """Add a text (or image) watermark to image."""
+    logo = None
+    if watermark_image is not None and watermark_image.filename:
+        logo = await watermark_image.read(MAX_WATERMARK_IMAGE_BYTES + 1)
+        if len(logo) > MAX_WATERMARK_IMAGE_BYTES:
+            raise HTTPException(status_code=400, detail="The watermark image is too large (maximum 10 MB).")
+    if not text.strip() and not logo:
+        raise HTTPException(status_code=400, detail="Enter the watermark text (or upload a watermark image).")
+
+    return await _run_with_stats(
         db, service, "image_watermark",
-        process_func=lambda paths: service.add_watermark(
-            paths[0], text, position, opacity, font_size, color, rotation
+        lambda paths: service.add_watermark(
+            paths[0], text, position, opacity, font_size, color, rotation,
+            tile=tile, watermark_image=logo, image_scale=image_scale,
         ),
-        file=file,
-        metadata={"text": text, "position": position},
+        file,
+        {"text": text, "position": position},
     )

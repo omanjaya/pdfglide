@@ -56,6 +56,7 @@ def process_image_compress(
         publish_progress(task_id, 10)
         
         from app.services.image_service import ImageService
+        from app.schemas.file import ImageCompressOptions, ImageConvertOptions, ImageResizeOptions
         import asyncio
         
         service = ImageService(settings.STORAGE_PATH)
@@ -63,14 +64,20 @@ def process_image_compress(
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(
-                service.compress(
-                    Path(file_path),
-                    quality=quality,
-                    max_width=max_width,
-                    max_height=max_height,
-                )
-            )
+            async def _compress():
+                source = Path(file_path)
+                if max_width or max_height:
+                    # Optional downscale first (never enlarges), then compress
+                    resized = await service.resize(
+                        source,
+                        ImageResizeOptions(
+                            width=max_width, height=max_height, no_upscale=True, quality=max(quality, 85)
+                        ),
+                    )
+                    source = resized.file_path
+                return await service.compress(source, ImageCompressOptions(quality=quality))
+
+            result = loop.run_until_complete(_compress())
         finally:
             loop.close()
         
@@ -126,6 +133,7 @@ def process_image_resize(
         update_task_status(task_id, "processing", progress=10)
         
         from app.services.image_service import ImageService
+        from app.schemas.file import ImageCompressOptions, ImageConvertOptions, ImageResizeOptions
         import asyncio
         
         service = ImageService(settings.STORAGE_PATH)
@@ -136,9 +144,7 @@ def process_image_resize(
             result = loop.run_until_complete(
                 service.resize(
                     Path(file_path),
-                    width=width,
-                    height=height,
-                    maintain_aspect=maintain_aspect,
+                    ImageResizeOptions(width=width, height=height, maintain_ratio=maintain_aspect),
                 )
             )
         finally:
@@ -181,6 +187,7 @@ def process_image_remove_background(self, task_id: str, file_path: str):
         publish_progress(task_id, 10)
         
         from app.services.image_service import ImageService
+        from app.schemas.file import ImageCompressOptions, ImageConvertOptions, ImageResizeOptions
         import asyncio
         
         service = ImageService(settings.STORAGE_PATH)
@@ -241,6 +248,7 @@ def process_image_convert(
         update_task_status(task_id, "processing", progress=10)
         
         from app.services.image_service import ImageService
+        from app.schemas.file import ImageCompressOptions, ImageConvertOptions, ImageResizeOptions
         import asyncio
         
         service = ImageService(settings.STORAGE_PATH)
@@ -249,7 +257,7 @@ def process_image_convert(
         asyncio.set_event_loop(loop)
         try:
             result = loop.run_until_complete(
-                service.convert(Path(file_path), output_format)
+                service.convert(Path(file_path), ImageConvertOptions(format=output_format))
             )
         finally:
             loop.close()
