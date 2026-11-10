@@ -1,4 +1,3 @@
-# UNEXECUTED: written without being able to run GitHub Actions. Verify on the first push.
 name: Backend tests
 
 on:
@@ -23,7 +22,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/constraints.txt
 
       # Only what the tests exercise. LibreOffice is NOT installed: the tests that
       # need it skip themselves (see tests/conftest.py: require_soffice).
@@ -40,7 +41,10 @@ jobs:
         run: |
           grep -viE '^(surya-ocr|rembg|onnxruntime|playwright|weasyprint|flower|jpype1|tabula-py)' requirements.txt > /tmp/requirements-ci.txt
           python -m pip install --upgrade pip
-          pip install -r /tmp/requirements-ci.txt
+          # constraints.txt: the exact versions production runs.
+          # greenlet: needed by SQLAlchemy's asyncio layer; in the full image it
+          # arrives through playwright, which is filtered out above.
+          pip install -r /tmp/requirements-ci.txt greenlet -c constraints.txt
 
       # Scoped on purpose: the full rule set in pyproject.toml reports ~1100
       # pre-existing findings. This only catches syntax errors and undefined names.
