@@ -1,6 +1,8 @@
 """PDF processing service."""
 
+import asyncio
 import re
+import shutil
 import fitz  # PyMuPDF
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -92,6 +94,47 @@ class PDFService(BaseService):
             mime_type="application/pdf",
         )
 
+    async def save_input_file(self, file, task_id: str, order: int = 0):
+        """Save an upload and make sure a PDF among them can actually be read."""
+        info = await super().save_input_file(file, task_id, order)
+        await asyncio.to_thread(self._ensure_readable_pdf, info.file_path)
+        return info
+
+    @staticmethod
+    def _ensure_readable_pdf(path: Path) -> None:
+        """Reject files that start like a PDF but cannot be opened.
+
+        Without this every tool fails later with its own low-level error
+        (or "succeeds" on garbage). Password-protected PDFs are readable
+        enough to pass: the tools that need the password ask for it.
+        """
+        from app.core.exceptions import InvalidFileTypeError
+
+        with open(path, "rb") as handle:
+            if b"%PDF" not in handle.read(1024):
+                return
+        try:
+            with fitz.open(path) as doc:
+                readable = doc.needs_pass or doc.page_count > 0
+        except Exception:
+            readable = False
+        if not readable:
+            Path(path).unlink(missing_ok=True)
+            raise InvalidFileTypeError(
+                "This file is not a valid PDF, or it is too damaged to read. "
+                "Try opening it on your device and saving it as a PDF again."
+            )
+
+    @staticmethod
+    def _discard(paths: list[Path]) -> None:
+        """Delete intermediate files once they are packed into the ZIP.
+
+        They are not tracked in the database, so nothing else would remove
+        them, and they contain the user's pages.
+        """
+        for path in paths:
+            Path(path).unlink(missing_ok=True)
+
     async def split(self, file: Path, pages: str) -> ProcessedResult:
         """Split PDF into multiple files."""
         output_id = self.generate_output_id()
@@ -107,6 +150,7 @@ class PDFService(BaseService):
                 label = f"pages_{match.group(1)}" if match else "part"
                 entries.append((part, self.generate_output_name(file, label, ".pdf")))
             self.create_named_zip(entries, zip_path)
+            self._discard(result_files)
 
             return ProcessedResult(
                 id=output_id,
@@ -116,11 +160,14 @@ class PDFService(BaseService):
                 mime_type="application/zip",
             )
         else:
+            # Stored names must be "{id}.{ext}" or the download endpoint rejects them
+            output_path = self.get_output_path(output_id, ".pdf")
+            shutil.move(str(result_files[0]), str(output_path))
             return ProcessedResult(
                 id=output_id,
                 file_name=self.generate_output_name(file, "split", ".pdf"),
-                file_path=result_files[0],
-                file_size=result_files[0].stat().st_size,
+                file_path=output_path,
+                file_size=output_path.stat().st_size,
                 mime_type="application/pdf",
             )
 
@@ -172,6 +219,7 @@ class PDFService(BaseService):
                 for img in result_files
             ]
             self.create_named_zip(entries, zip_path)
+            self._discard(result_files)
 
             return ProcessedResult(
                 id=output_id,
@@ -181,11 +229,13 @@ class PDFService(BaseService):
                 mime_type="application/zip",
             )
         else:
+            output_path = self.get_output_path(output_id, f".{output_format}")
+            shutil.move(str(result_files[0]), str(output_path))
             return ProcessedResult(
                 id=output_id,
                 file_name=self.generate_output_name(file, "image", f".{output_format}"),
-                file_path=result_files[0],
-                file_size=result_files[0].stat().st_size,
+                file_path=output_path,
+                file_size=output_path.stat().st_size,
                 mime_type=f"image/{output_format}",
             )
 

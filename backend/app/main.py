@@ -80,7 +80,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     but sanitize unexpected ones.
     """
     # Allow certain status codes to pass through with their messages
-    safe_status_codes = {400, 401, 403, 404, 405, 409, 410, 422, 429}
+    safe_status_codes = {400, 401, 403, 404, 405, 409, 410, 413, 415, 422, 429}
 
     if exc.status_code in safe_status_codes:
         # These are intentional client errors, safe to expose
@@ -202,8 +202,21 @@ async def lifespan(app: FastAPI):
 
     # Start cleanup scheduler in background
     from app.utils.cleanup import run_cleanup_scheduler
-    cleanup_task = asyncio.create_task(run_cleanup_scheduler(interval_minutes=30))
+    cleanup_task = asyncio.create_task(run_cleanup_scheduler(interval_minutes=1))
     logger.info("Cleanup scheduler started")
+
+    # Warm up the background-removal model off the event loop, so the first
+    # visitor after a restart does not wait a minute for it to load.
+    def _preload_rembg() -> None:
+        try:
+            from app.processors.image.background_remover import get_rembg_session
+
+            get_rembg_session()
+            logger.info("Background-removal model preloaded")
+        except Exception as e:
+            logger.warning(f"Could not preload background-removal model: {e}")
+
+    asyncio.get_running_loop().run_in_executor(None, _preload_rembg)
 
     yield
 

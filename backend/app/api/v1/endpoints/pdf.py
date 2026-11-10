@@ -8,6 +8,7 @@ Each endpoint is now ~15-20 lines instead of ~100 lines.
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from app.core.exceptions import PDFGlideException
 
 from app.api.deps import DbSession, PDFServiceDep
 from app.schemas.response import APIResponse
@@ -162,6 +163,10 @@ async def compress_pdf(
             ),
         )
 
+    except HTTPException:
+        raise
+    except PDFGlideException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         import uuid as uuid_mod
         error_id = str(uuid_mod.uuid4())[:8]
@@ -673,6 +678,10 @@ async def compare_pdfs(
             ),
         )
 
+    except HTTPException:
+        raise
+    except PDFGlideException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         import uuid as uuid_mod
         error_id = str(uuid_mod.uuid4())[:8]
@@ -819,6 +828,10 @@ async def find_text_in_pdf(
             }
         )
 
+    except HTTPException:
+        raise
+    except PDFGlideException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         import uuid as uuid_mod
         error_id = str(uuid_mod.uuid4())[:8]
@@ -958,6 +971,10 @@ async def get_form_fields(
             data=result.model_dump(),
         )
 
+    except HTTPException:
+        raise
+    except PDFGlideException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         import uuid as uuid_mod
         error_id = str(uuid_mod.uuid4())[:8]

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.processors.base import BaseProcessor
 from app.core.exceptions import ProcessingError
+from app.processors.pdf import page_assembly as pa
 
 
 class PDFMerger(BaseProcessor):
@@ -30,13 +31,25 @@ class PDFMerger(BaseProcessor):
             # Create output PDF
             output_pdf = pikepdf.Pdf.new()
 
+            first_src = None
             for file_path in files:
                 # Open each PDF and append all pages
                 with pikepdf.open(file_path) as pdf:
+                    offset = len(output_pdf.pages)
+                    mapping = {
+                        p.objgen: offset + i for i, p in enumerate(pdf.pages)
+                    }
                     output_pdf.pages.extend(pdf.pages)
+                    pa.copy_acroform(pdf, output_pdf)
+                    pa.copy_outlines([(pdf, mapping)], output_pdf)
+                    if first_src is None:
+                        # Document info/XMP of the first file describes the result
+                        pa.copy_metadata(pdf, output_pdf)
+                        first_src = True
 
+            pa.drop_dangling_links(output_pdf)
             # Save merged PDF
-            output_pdf.save(output_path)
+            pa.save_lean(output_pdf, output_path)
 
             return output_path
 

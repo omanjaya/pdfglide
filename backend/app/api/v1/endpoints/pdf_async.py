@@ -10,6 +10,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
+from app.core.exceptions import PDFGlideException
 
 from app.api.deps import DbSession, PDFServiceDep
 from app.schemas.response import APIResponse
@@ -155,6 +156,10 @@ async def merge_pdfs_async(
             }
         )
         
+    except HTTPException:
+        raise
+    except PDFGlideException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         import uuid as uuid_mod
         import logging
@@ -240,6 +245,10 @@ async def compress_pdf_async(
             }
         )
         
+    except HTTPException:
+        raise
+    except PDFGlideException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         import uuid as uuid_mod
         import logging
@@ -295,6 +304,10 @@ async def split_pdf_async(
             }
         )
         
+    except HTTPException:
+        raise
+    except PDFGlideException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         import uuid as uuid_mod
         import logging
@@ -346,6 +359,10 @@ async def rotate_pdf_async(
             }
         )
         
+    except HTTPException:
+        raise
+    except PDFGlideException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         import uuid as uuid_mod
         import logging
@@ -402,6 +419,10 @@ async def add_watermark_async(
             }
         )
         
+    except HTTPException:
+        raise
+    except PDFGlideException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         import uuid as uuid_mod
         import logging

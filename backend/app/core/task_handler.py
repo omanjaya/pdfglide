@@ -109,7 +109,7 @@ class TaskHandler:
                 id=task_id,
                 tool_type=self.tool_type,
                 status="processing",
-                metadata=metadata or {},
+                task_metadata=metadata or {},
             )
             self.db.add(task)
 

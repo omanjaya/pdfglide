@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -15,39 +16,146 @@ from app.models.database import async_session_maker
 logger = logging.getLogger(__name__)
 
 
+def grace_expiry(now: datetime, current_expiry: datetime, grace_seconds: int) -> datetime:
+    """Expiry after a download has started: never later than ``now + grace``.
+
+    The result is the earlier of the existing expiry and ``now + grace``, so a
+    download never extends the life of a file and repeated calls are
+    idempotent-ish (the second call can only move the deadline earlier, and in
+    practice returns ``current_expiry`` unchanged because it is already sooner).
+    """
+    return min(current_expiry, now + timedelta(seconds=max(0, grace_seconds)))
+
+
+def is_within(path: Path, base: Path) -> bool:
+    """True if ``path`` resolves to a location inside ``base``."""
+    try:
+        return path.resolve().is_relative_to(base.resolve())
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
+def _unlink_inside(path: Path, base: Path) -> bool:
+    """Delete a regular file only if it lives inside ``base``. Idempotent."""
+    try:
+        if not is_within(path, base):
+            logger.warning(f"Refusing to delete path outside {base}: {path}")
+            return False
+        path.unlink(missing_ok=True)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete {path}: {e}")
+        return False
+
+
+async def purge_task(
+    session: AsyncSession,
+    task_id: str,
+    upload_dir: Optional[Path] = None,
+    processed_dir: Optional[Path] = None,
+) -> dict:
+    """
+    Remove everything belonging to a task: files on disk and database rows.
+
+    Input files are stored flat in the upload directory as
+    ``{task_id}_{order}_{name}`` (see ``FileHandler.save_upload``), so they are
+    found through the ``InputFile.file_path`` rows and, as a fallback for rows
+    that are already gone, by that name prefix. A legacy ``uploads/{task_id}/``
+    directory is removed too if it exists. Safe to call repeatedly and from
+    several processes at once: every step tolerates "already gone".
+    """
+    from app.config import settings
+
+    upload_dir = upload_dir or settings.upload_path
+    processed_dir = processed_dir or settings.processed_path
+    removed = {"input_files": 0, "output_files": 0}
+
+    outputs = (
+        await session.execute(select(OutputFile.file_path).where(OutputFile.task_id == task_id))
+    ).scalars().all()
+    inputs = (
+        await session.execute(select(InputFile.file_path).where(InputFile.task_id == task_id))
+    ).scalars().all()
+
+    for raw in outputs:
+        if _unlink_inside(Path(raw), processed_dir):
+            removed["output_files"] += 1
+    input_paths = {Path(raw) for raw in inputs}
+    if upload_dir.exists():
+        input_paths.update(p for p in upload_dir.glob(f"{task_id}_*") if p.is_file())
+    for path in input_paths:
+        if _unlink_inside(path, upload_dir):
+            removed["input_files"] += 1
+    legacy_dir = upload_dir / task_id
+    if legacy_dir.is_dir() and not legacy_dir.is_symlink():
+        shutil.rmtree(legacy_dir, ignore_errors=True)
+
+    await session.execute(delete(OutputFile).where(OutputFile.task_id == task_id))
+    await session.execute(delete(InputFile).where(InputFile.task_id == task_id))
+    await session.execute(delete(Task).where(Task.id == task_id))
+    await session.commit()
+    return removed
+
+
+# Strong references to pending delayed purges (the event loop only keeps weak ones).
+_pending_purges: dict[str, "asyncio.Task[None]"] = {}
+
+
+async def _purge_after(task_id: str, delay: float, session_maker) -> None:
+    try:
+        await asyncio.sleep(delay)
+        async with session_maker() as session:
+            await purge_task(session, task_id)
+        logger.info(f"Purged task {task_id} after download grace period")
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        # The periodic sweeper still removes it: its output row is already expired.
+        logger.error(f"Delayed purge of task {task_id} failed: {e}")
+    finally:
+        _pending_purges.pop(task_id, None)
+
+
+def schedule_task_purge(task_id: str, delay_seconds: float, session_maker=None) -> bool:
+    """Purge ``task_id`` after ``delay_seconds`` using the shared async session factory.
+
+    Returns False if a purge for this task is already pending (idempotent), so
+    repeated downloads do not stack up timers.
+    """
+    if task_id in _pending_purges:
+        return False
+    _pending_purges[task_id] = asyncio.get_running_loop().create_task(
+        _purge_after(task_id, delay_seconds, session_maker or async_session_maker)
+    )
+    return True
+
+
 async def cleanup_expired_files() -> int:
     """
     Clean up expired output files from storage and database.
 
+    Removes each expired output together with its task's input files and rows,
+    so nothing is left orphaned. Also catches tasks whose delayed post-download
+    purge was lost (process restart) because the download shortened their expiry.
+
     Returns:
-        Number of files cleaned up
+        Number of output files cleaned up
     """
     async with async_session_maker() as session:
-        # Find expired files
         result = await session.execute(
-            select(OutputFile).where(OutputFile.expires_at < datetime.utcnow())
+            select(OutputFile.task_id).where(OutputFile.expires_at < datetime.utcnow())
         )
-        expired_files = result.scalars().all()
+        task_ids = result.scalars().all()
 
-        cleaned_count = 0
-        for output_file in expired_files:
-            # Delete physical file
-            file_path = Path(output_file.file_path)
+        for task_id in set(task_ids):
             try:
-                if file_path.exists():
-                    file_path.unlink()
-                    logger.info(f"Deleted output file: {file_path}")
+                await purge_task(session, task_id)
             except Exception as e:
-                logger.error(f"Failed to delete file {file_path}: {e}")
+                await session.rollback()
+                logger.error(f"Failed to purge expired task {task_id}: {e}")
 
-            # Delete from database
-            await session.delete(output_file)
-            cleaned_count += 1
-
-        await session.commit()
-        logger.info(f"Cleaned up {cleaned_count} expired output files")
-
-        return cleaned_count
+        logger.info(f"Cleaned up {len(task_ids)} expired output files")
+        return len(task_ids)
 
 
 async def cleanup_input_files(session: AsyncSession, task: Task) -> int:
@@ -182,7 +290,8 @@ async def cleanup_completed_tasks(hours_old: Optional[int] = None) -> int:
             cleaned_count += 1
 
         await session.commit()
-        logger.info(f"Cleaned up {cleaned_count} completed tasks")
+        if cleaned_count:
+            logger.info(f"Cleaned up {cleaned_count} completed tasks")
 
         return cleaned_count
 
@@ -223,7 +332,43 @@ async def cleanup_upload_files(
             except Exception as e:
                 logger.error(f"Failed to delete upload file {file_path}: {e}")
 
-    logger.info(f"Cleaned up {cleaned_count} upload files")
+    if cleaned_count:
+
+        logger.info(f"Cleaned up {cleaned_count} upload files")
+    return cleaned_count
+
+
+async def cleanup_processed_files(storage_path: Path, minutes_old: int = 60) -> int:
+    """
+    Delete anything left in the processed directory beyond its lifetime.
+
+    Results expire after FILE_EXPIRY_MINUTES and are removed through their
+    database rows. This is the safety net for files with no row at all
+    (intermediate pages, temp files of a crashed conversion): whatever is
+    older than ``minutes_old`` is user data that should already be gone.
+    """
+    from app.config import settings
+
+    processed_dir = Path(storage_path) / "processed"
+    if not processed_dir.exists():
+        return 0
+
+    minutes_old = max(minutes_old, settings.FILE_EXPIRY_MINUTES * 2)
+    cutoff = datetime.now().timestamp() - minutes_old * 60
+    cleaned_count = 0
+
+    for file_path in processed_dir.rglob("*"):
+        try:
+            if file_path.is_file() and not file_path.is_symlink():
+                if file_path.stat().st_mtime < cutoff:
+                    file_path.unlink()
+                    cleaned_count += 1
+        except Exception as e:
+            logger.error(f"Failed to delete stale processed file {file_path}: {e}")
+
+    if cleaned_count:
+        if cleaned_count:
+            logger.info(f"Cleaned up {cleaned_count} stale processed files")
     return cleaned_count
 
 
@@ -252,7 +397,9 @@ async def cleanup_usage_stats(days_old: Optional[int] = None) -> int:
         await session.commit()
         deleted_count = result.rowcount
 
-        logger.info(f"Cleaned up {deleted_count} usage stats records")
+        if deleted_count:
+
+            logger.info(f"Cleaned up {deleted_count} usage stats records")
         return deleted_count
 
 
@@ -281,7 +428,9 @@ async def cleanup_audit_logs(days_old: Optional[int] = None) -> int:
         await session.commit()
         deleted_count = result.rowcount
 
-        logger.info(f"Cleaned up {deleted_count} audit log records")
+        if deleted_count:
+
+            logger.info(f"Cleaned up {deleted_count} audit log records")
         return deleted_count
 
 
@@ -298,7 +447,7 @@ async def run_cleanup_scheduler(interval_minutes: int = 30):
 
     while True:
         try:
-            logger.info("Running scheduled cleanup...")
+            logger.debug("Running scheduled cleanup...")
 
             # Clean up expired output files
             await cleanup_expired_files()
@@ -312,13 +461,16 @@ async def run_cleanup_scheduler(interval_minutes: int = 30):
             # Clean up orphaned upload files on disk
             await cleanup_upload_files(settings.STORAGE_PATH)
 
+            # Clean up processed files that outlived their expiry (no DB row)
+            await cleanup_processed_files(settings.STORAGE_PATH)
+
             # Clean up old usage statistics
             await cleanup_usage_stats()
 
             # Clean up old audit logs
             await cleanup_audit_logs()
 
-            logger.info("Scheduled cleanup completed")
+            logger.debug("Scheduled cleanup completed")
 
         except Exception as e:
             logger.error(f"Cleanup error: {e}", exc_info=True)

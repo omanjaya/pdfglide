@@ -6,6 +6,7 @@ from typing import List
 
 from app.processors.base import BaseProcessor
 from app.core.exceptions import ProcessingError
+from app.processors.pdf import page_assembly as pa
 
 
 class PDFOrganizer(BaseProcessor):
@@ -45,10 +46,18 @@ class PDFOrganizer(BaseProcessor):
                 # Create new PDF with reordered pages
                 new_pdf = pikepdf.Pdf.new()
 
+                mapping = {}
                 for page_num in page_order:
-                    new_pdf.pages.append(pdf.pages[page_num - 1])
+                    src_page = pdf.pages[page_num - 1]
+                    # Bookmarks point at the first copy of a repeated page
+                    mapping.setdefault(src_page.objgen, len(new_pdf.pages))
+                    new_pdf.pages.append(src_page)
 
-                new_pdf.save(output_path)
+                pa.drop_dangling_links(new_pdf)
+                pa.copy_metadata(pdf, new_pdf)
+                pa.copy_acroform(pdf, new_pdf)
+                pa.copy_outlines([(pdf, mapping)], new_pdf)
+                pa.save_lean(new_pdf, output_path)
 
             return output_path
 

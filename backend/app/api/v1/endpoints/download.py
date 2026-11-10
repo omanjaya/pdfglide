@@ -1,21 +1,22 @@
 """Download endpoint with delete-after-download security."""
 
-import asyncio
+import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
-from sqlalchemy import select, delete
+from sqlalchemy import select
 
 from app.api.deps import DbSession
 from app.config import settings
-from app.models.task import OutputFile, Task, InputFile
+from app.models.task import OutputFile, Task
 from app.schemas.response import APIResponse
 from app.schemas.task import TaskStatus, TaskStatusEnum
 from app.core.logging import get_logger
 from app.utils.audit import log_download
+from app.utils.cleanup import grace_expiry, schedule_task_purge
 from app.utils.naming import clean_download_name
 
 logger = get_logger(__name__)
@@ -67,68 +68,32 @@ def validate_filename_format(filename: str) -> bool:
     return bool(re.match(pattern, filename, re.IGNORECASE))
 
 
-async def cleanup_task_files(task_id: str, file_path: Path, db_url: str):
-    """
-    Background task to delete files after download.
+DEFAULT_DOWNLOAD_GRACE_SECONDS = 120
+EXPIRY_LEEWAY_SECONDS = 15
 
-    Deletes:
-    - The output file from disk
-    - Associated input files from disk
-    - Database records for the task
-    """
-    # Small delay to ensure file transfer is complete
-    await asyncio.sleep(2)
 
+def get_download_grace_seconds() -> int:
+    """Seconds a file stays fetchable after its first download (DOWNLOAD_GRACE_SECONDS)."""
     try:
-        # Delete output file from disk
-        if file_path.exists():
-            file_path.unlink()
-            logger.info(f"Deleted output file: {file_path}")
-
-        # Delete input files from disk
-        upload_dir = settings.upload_path / task_id
-        if upload_dir.exists():
-            import shutil
-            shutil.rmtree(upload_dir, ignore_errors=True)
-            logger.info(f"Deleted input directory: {upload_dir}")
-
-        # Clean up database records using sync session
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import Session
-
-        engine = create_engine(db_url)
-        with Session(engine) as session:
-            # Delete output files
-            session.execute(
-                delete(OutputFile).where(OutputFile.task_id == task_id)
-            )
-            # Delete input files
-            session.execute(
-                delete(InputFile).where(InputFile.task_id == task_id)
-            )
-            # Delete task
-            session.execute(
-                delete(Task).where(Task.id == task_id)
-            )
-            session.commit()
-            logger.info(f"Cleaned up database records for task: {task_id}")
-
-    except Exception as e:
-        logger.error(f"Error cleaning up task {task_id}: {e}")
+        return max(0, int(os.getenv("DOWNLOAD_GRACE_SECONDS", DEFAULT_DOWNLOAD_GRACE_SECONDS)))
+    except ValueError:
+        return DEFAULT_DOWNLOAD_GRACE_SECONDS
 
 
-@router.get("/download/{file_id}")
+@router.api_route("/download/{file_id}", methods=["GET", "HEAD"])
 async def download_file(
     request: Request,
     db: DbSession,
-    background_tasks: BackgroundTasks,
     file_id: str,
 ):
     """
     Download processed file by ID.
 
     Security features:
-    - File is deleted immediately after download (if DELETE_AFTER_DOWNLOAD=True)
+    - With DELETE_AFTER_DOWNLOAD=True the first GET starts a short grace
+      window (DOWNLOAD_GRACE_SECONDS, default 120): retries, double clicks and
+      resume/range requests still work inside it, then the file, the task's
+      input files and the DB rows are deleted. HEAD never starts the clock.
     - Files auto-expire after FILE_EXPIRY_MINUTES
     """
     # Validate file_id format (should be alphanumeric with underscore)
@@ -146,8 +111,14 @@ async def download_file(
         raise HTTPException(status_code=404, detail="File not found")
 
     # Check expiration
-    if output_file.expires_at < datetime.utcnow():
-        raise HTTPException(status_code=410, detail="File has expired")
+    # A few seconds of leeway so a countdown shown in the browser (which starts
+    # when the result arrives, slightly after the server created it) never
+    # reaches the server later than the server's own clock allows.
+    if output_file.expires_at + timedelta(seconds=EXPIRY_LEEWAY_SECONDS) < datetime.utcnow():
+        raise HTTPException(
+            status_code=410,
+            detail="This file has been deleted. Files are kept for 2 minutes — please process it again.",
+        )
 
     # SECURITY: Validate file path is within allowed directory
     file_path = Path(output_file.file_path)
@@ -177,12 +148,20 @@ async def download_file(
         logger.error(f"Not a regular file: {file_path}")
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Update download count
-    output_file.download_count += 1
-    task_id = output_file.task_id
-
     # Name shown to the user; also cleans legacy rows stored with internal IDs
     download_name = clean_download_name(output_file.file_name)
+
+    # HEAD is a probe (browsers, download managers, scanners): serve headers
+    # only, count nothing and do not start the grace window.
+    if request.method == "HEAD":
+        return FileResponse(
+            path=file_path,
+            filename=download_name,
+            media_type=output_file.mime_type,
+        )
+
+    output_file.download_count += 1
+    task_id = output_file.task_id
 
     # Log download for audit trail
     await log_download(
@@ -193,17 +172,22 @@ async def download_file(
         file_name=download_name,
     )
 
+    # Privacy: start the grace window. The expiry only ever moves earlier, so
+    # further requests cannot extend the file's life, and the periodic sweeper
+    # (cleanup_expired_files) agrees with the delayed purge below.
+    grace = get_download_grace_seconds()
+    if settings.DELETE_AFTER_DOWNLOAD:
+        output_file.expires_at = grace_expiry(datetime.utcnow(), output_file.expires_at, grace)
+
     await db.commit()
 
-    # Schedule cleanup after download if enabled
+    # The purge is scheduled now, as an independent task on the shared async
+    # session factory, rather than as a response background task: those only
+    # run if the response completes (a dropped connection would skip them) and
+    # a long sleep there would block the keep-alive connection.
     if settings.DELETE_AFTER_DOWNLOAD:
-        background_tasks.add_task(
-            cleanup_task_files,
-            task_id,
-            file_path,
-            settings.DATABASE_URL_SYNC,
-        )
-        logger.info(f"Scheduled cleanup for task {task_id} after download")
+        if schedule_task_purge(task_id, grace + 1):
+            logger.info(f"Scheduled purge of task {task_id} in {grace}s")
 
     return FileResponse(
         path=file_path,

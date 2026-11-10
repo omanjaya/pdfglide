@@ -440,14 +440,29 @@ def test_wrapper_callable_without_instance():
     assert BaseService.generate_multi_output_name([Path("a.pdf")], "x") == "a_x.pdf"
 
 
-def test_wrapper_multi_uses_first_file():
+def test_wrapper_multi_names_every_input():
     _, multi = _services()
     paths = [
         Path(f"{ID}_{TS}_0_first.pdf"),
         Path(f"{ID}_{TS}_1_second.pdf"),
         Path(f"{ID}_{TS}_2_third.pdf"),
     ]
-    assert multi(paths, "merged") == "first_merged.pdf"
+    assert multi(paths[:1], "merged") == "first_merged.pdf"
+    assert multi(paths[:2], "merged") == "first_and_second_merged.pdf"
+    assert multi(paths, "merged") == "first_and_2_more_merged.pdf"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "เอกสารที่อยู่_compressed.pdf",  # Thai: combining vowels and tone marks
+        "दस्तावेज़_compressed.pdf",  # Hindi: virama and nukta
+        "文档报告_compressed.pdf",
+        "تقرير_compressed.pdf",
+    ],
+)
+def test_combining_marks_survive(name):
+    assert clean_download_name(name) == name
 
 
 @pytest.mark.parametrize(

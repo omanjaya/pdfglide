@@ -8,6 +8,7 @@ sees in the download dialog, e.g. ``Onco_n_ILD_IC_compressed.pdf``.
 """
 
 import re
+import unicodedata
 from pathlib import Path
 from typing import Optional, Union
 
@@ -28,6 +29,15 @@ _STORAGE_PREFIX_RE = re.compile(
 _SEPARATORS = " _-."
 
 
+def _is_name_char(char: str) -> bool:
+    """Letters, digits and combining marks of any script, plus separators.
+
+    Combining marks (category M*) are not ``isalnum()`` but are part of the
+    word in Thai, Hindi and other scripts; dropping them mangles the name.
+    """
+    return char.isalnum() or char in _SEPARATORS or unicodedata.category(char).startswith("M")
+
+
 def strip_storage_prefix(stem: str) -> str:
     """Remove the internal ``{uuid}_{timestamp}[_{order}]_`` prefix from a stem.
 
@@ -43,7 +53,7 @@ def clean_stem(stem: str, fallback: str = DEFAULT_STEM) -> str:
     collapsed, and leading/trailing separators are removed. Returns
     ``fallback`` when nothing readable is left.
     """
-    stem = "".join(c if (c.isalnum() or c in _SEPARATORS) else "_" for c in stem)
+    stem = "".join(c if _is_name_char(c) else "_" for c in unicodedata.normalize("NFC", stem))
     stem = re.sub(r"\s+", " ", stem)
     # Any run of spaces/underscores that contains an underscore becomes one "_"
     stem = re.sub(r" *_[ _]*", "_", stem)

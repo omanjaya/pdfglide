@@ -36,11 +36,11 @@ class Settings(BaseSettings):
     # File limits
     MAX_UPLOAD_SIZE: int = 104857600  # 100MB
     MAX_FILES_PER_REQUEST: int = 20
-    FILE_EXPIRY_MINUTES: int = 5  # Files auto-delete after 5 minutes
+    FILE_EXPIRY_MINUTES: int = 2  # Results are kept for 2 minutes, then deleted
     DELETE_AFTER_DOWNLOAD: bool = True  # Delete file immediately after download
 
     # Data Retention (configurable for GDPR compliance)
-    UPLOAD_RETENTION_HOURS: int = 2  # Delete input files after X hours
+    UPLOAD_RETENTION_HOURS: int = 1  # Uploads never stay longer than this (privacy policy says 1 hour)
     ORPHAN_TASK_RETENTION_HOURS: int = 24  # Delete orphaned tasks after X hours
     USAGE_STATS_RETENTION_DAYS: int = 90  # Keep usage stats for X days
     AUDIT_LOG_RETENTION_DAYS: int = 365  # Keep audit logs for X days

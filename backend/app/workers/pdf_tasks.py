@@ -69,7 +69,7 @@ def update_task_status(
         session.close()
 
 
-def save_output_file(task_id: str, result, expires_minutes: int = 5):
+def save_output_file(task_id: str, result, expires_minutes: int = settings.FILE_EXPIRY_MINUTES):
     """Save output file record to database."""
     from app.models.task import OutputFile
 

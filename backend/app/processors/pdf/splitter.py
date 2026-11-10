@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.processors.base import BaseProcessor
 from app.core.exceptions import ProcessingError
+from app.processors.pdf import page_assembly as pa
 
 
 class PDFSplitter(BaseProcessor):
@@ -44,12 +45,19 @@ class PDFSplitter(BaseProcessor):
                     output_pdf = pikepdf.Pdf.new()
 
                     # Add pages (pikepdf uses 0-based indexing)
+                    mapping = {}
                     for page_num in range(start - 1, end):
+                        mapping[pdf.pages[page_num].objgen] = len(output_pdf.pages)
                         output_pdf.pages.append(pdf.pages[page_num])
+
+                    pa.drop_dangling_links(output_pdf)
+                    pa.copy_metadata(pdf, output_pdf)
+                    pa.copy_acroform(pdf, output_pdf)
+                    pa.copy_outlines([(pdf, mapping)], output_pdf)
 
                     # Save split PDF
                     output_path = output_dir / f"{output_id}_pages_{start}-{end}.pdf"
-                    output_pdf.save(output_path)
+                    pa.save_lean(output_pdf, output_path)
                     output_files.append(output_path)
 
                 return output_files

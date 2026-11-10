@@ -9,7 +9,10 @@ from fastapi import UploadFile
 
 from app.core.file_handler import FileHandler, FileInfo
 from app.config import settings
-from app.utils.naming import build_download_name
+from app.utils.naming import build_download_name, clean_stem
+
+# Longest stem of a single input shown in a multi-file download name
+MULTI_NAME_PART_LENGTH = 30
 
 
 class ProcessedResult:
@@ -131,7 +134,29 @@ class BaseService(ABC):
             extension: Output file extension
 
         Returns:
-            Filename like 'document1_merged.pdf' (based on first file)
+            One file: ``A_merged.pdf``. Two files: ``A_and_B_merged.pdf``.
+            Three or more: ``A_and_2_more_merged.pdf``. No files:
+            ``files_merged.pdf``. Each stem is shortened and every stored
+            input path is stripped of its internal ID by the naming helper.
         """
-        source = input_paths[0] if input_paths else None
-        return build_download_name(source, operation, extension, fallback="files")
+        if len(input_paths) < 2:
+            source = input_paths[0] if input_paths else None
+            return build_download_name(source, operation, extension, fallback="files")
+
+        def stem_of(path: Path) -> str:
+            stem = build_download_name(path, None, "", fallback="file")
+            return clean_stem(stem[:MULTI_NAME_PART_LENGTH], fallback="file")
+
+        first = stem_of(input_paths[0])
+        if len(input_paths) == 2:
+            combined = f"{first}_and_{stem_of(input_paths[1])}"
+        else:
+            combined = f"{first}_and_{len(input_paths) - 1}_more"
+
+        # Re-enter through the naming helper so the result is cleaned like
+        # every other download name. The extension is part of the source so a
+        # dot inside the stem is never mistaken for it.
+        ext = "." + extension.lstrip(".") if extension else ""
+        return build_download_name(
+            f"{combined}{ext}", operation, extension, fallback="files"
+        )
