@@ -1,165 +1,206 @@
 'use client';
 
-import { useState } from 'react';
-import { Globe } from 'lucide-react';
-import { ToolLayout } from '@/components/shared/ToolLayout';
-import { ProcessingStatus } from '@/components/shared/ProcessingStatus';
-import { Button } from '@/components/ui/Button';
+import { FormEvent, useState } from 'react';
+import { Globe, Link2, FileCheck2, Zap } from 'lucide-react';
+import { ToolLayout, ToolPanel } from '@/components/shared/ToolLayout';
+import { FeatureGrid, InfoNote, TrustStrip } from '@/components/shared/TrustStrip';
+import { ChoiceGroup, Field } from '@/components/shared/OptionsPanel';
+import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { ProcessingCard } from '@/components/shared/ProcessingCard';
+import { ResultCard } from '@/components/shared/ResultCard';
+import { ErrorCard } from '@/components/shared/ErrorCard';
+import { useToolRun } from '@/hooks/useToolRun';
 import { htmlToPdf, TaskResponse } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-type Status = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
 type PageSize = 'A4' | 'Letter' | 'Legal';
-type Orientation = 'portrait' | 'landscape';
 
-const pageSizeOptions: { value: PageSize; label: string }[] = [
-  { value: 'A4', label: 'A4' },
-  { value: 'Letter', label: 'Letter' },
-  { value: 'Legal', label: 'Legal' },
+const PAGE_SIZES: { value: PageSize; label: string; description: string }[] = [
+  { value: 'A4', label: 'A4', description: '210 × 297 mm' },
+  { value: 'Letter', label: 'Letter', description: '8.5 × 11 in' },
+  { value: 'Legal', label: 'Legal', description: '8.5 × 14 in' },
 ];
 
-const orientationOptions: { value: Orientation; label: string }[] = [
-  { value: 'portrait', label: 'Portrait' },
-  { value: 'landscape', label: 'Landscape' },
-];
+const PRIVATE_HOST = /^(localhost|.*\.local|.*\.internal|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.0\.0\.0|\[?::1\]?$)/i;
+
+/** Returns the normalised URL, or a message explaining what is wrong. */
+function checkUrl(raw: string): { url: string; note?: string } | { error: string } {
+  const text = raw.trim();
+  if (!text) return { error: 'Enter the address of the page you want to convert.' };
+  if (/\s/.test(text)) return { error: 'The address cannot contain spaces.' };
+
+  let candidate = text;
+  let note: string | undefined;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(candidate) && !/^[^/]+\.[a-z]{2,}(:\d+)?(\/|$)/i.test(candidate)) {
+      return { error: 'Only web addresses starting with http:// or https:// can be converted.' };
+    }
+    candidate = `https://${candidate}`;
+    note = `We will use ${candidate}`;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return { error: 'That does not look like a valid web address. Try something like https://example.com.' };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { error: 'Only web addresses starting with http:// or https:// can be converted.' };
+  }
+  if (PRIVATE_HOST.test(parsed.hostname)) {
+    return { error: 'Only public websites can be converted, not private or local addresses.' };
+  }
+  if (!parsed.hostname.includes('.') || /\.$/.test(parsed.hostname)) {
+    return { error: 'That address needs a full domain name, for example example.com.' };
+  }
+  return { url: parsed.toString(), note };
+}
 
 export default function HtmlToPdfPage() {
-  const [url, setUrl] = useState('');
+  const [input, setInput] = useState('');
+  const [touched, setTouched] = useState(false);
   const [pageSize, setPageSize] = useState<PageSize>('A4');
-  const [orientation, setOrientation] = useState<Orientation>('portrait');
-  const [status, setStatus] = useState<Status>('idle');
-  const [result, setResult] = useState<TaskResponse['data'] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const run = useToolRun<TaskResponse['data']>();
 
-  const isValidUrl = (urlString: string) => {
-    try {
-      new URL(urlString);
-      return true;
-    } catch {
-      return false;
-    }
-  };
+  const checked = checkUrl(input);
+  const error = touched && 'error' in checked && input.trim() ? checked.error : null;
+  const note = 'note' in checked && checked.note && !error ? checked.note : undefined;
 
-  const handleProcess = async () => {
-    if (!url || !isValidUrl(url)) {
-      setError('Please enter a valid URL');
+  const convert = () => {
+    const c = checkUrl(input);
+    if ('error' in c) {
+      setTouched(true);
       return;
     }
-
-    setStatus('processing');
-    setError(null);
-
-    try {
-      const response = await htmlToPdf(url, { pageSize, orientation });
-      if (response.success) {
-        setResult(response.data);
-        setStatus('completed');
-      } else {
-        setError(response.error || 'Processing failed');
-        setStatus('error');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'An error occurred');
-      setStatus('error');
-    }
+    run.run((req) => htmlToPdf(c.url, { pageSize }, req));
   };
-
-  const handleReset = () => {
-    setUrl('');
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    convert();
+  };
+  const startOver = () => {
+    run.reset();
+    setInput('');
+    setTouched(false);
     setPageSize('A4');
-    setOrientation('portrait');
-    setStatus('idle');
-    setResult(null);
-    setError(null);
   };
+
+  const shownUrl = 'url' in checked ? checked.url : input.trim();
 
   return (
     <ToolLayout
       title="HTML to PDF"
-      description="Convert any webpage or URL to a PDF document"
+      description="Save any public web page as a PDF."
       icon={Globe}
-      color="bg-cyan-500"
+      tone="cyan"
+      status={run.announcement}
     >
-      {status === 'idle' && (
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Website URL</label>
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://example.com"
-              className="w-full rounded-lg border px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+      {run.status === 'idle' && (
+        <ToolPanel aria-label="Convert a web page to PDF">
+          <form onSubmit={onSubmit} noValidate className="space-y-6">
+            <Field
+              label="Web page address"
+              hint={note || 'Paste the full address of a public page, for example https://example.com/article'}
+              error={error}
+            >
+              <input
+                type="text"
+                inputMode="url"
+                autoComplete="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onBlur={() => setTouched(true)}
+                placeholder="https://example.com"
+                className={cn(
+                  'min-h-[48px] w-full rounded-lg border bg-white px-4 py-3 text-base text-gray-900 placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1',
+                  error ? 'border-red-500 focus-visible:ring-red-600' : 'border-gray-300 focus-visible:ring-cyan-600'
+                )}
+              />
+            </Field>
+
+            {input.trim() && (
+              <>
+                <ChoiceGroup
+                  label="Page size"
+                  tone="cyan"
+                  value={pageSize}
+                  onChange={setPageSize}
+                  options={PAGE_SIZES}
+                />
+                <InfoNote>
+                  Only public pages can be converted: pages behind a login, private network addresses
+                  and some heavily scripted sites may fail or come out incomplete.
+                </InfoNote>
+              </>
+            )}
+
+            <div className="flex justify-center">
+              <PrimaryButton
+                type="submit"
+                tone="cyan"
+                icon={<Globe className="h-5 w-5" />}
+                disabled={!input.trim()}
+              >
+                Convert to PDF
+              </PrimaryButton>
+            </div>
+          </form>
+
+          {!input.trim() && (
+            <FeatureGrid
+              tone="cyan"
+              items={[
+                { icon: Link2, label: 'Just a link', desc: 'No upload needed' },
+                { icon: FileCheck2, label: 'A4, Letter, Legal', desc: 'Choose the page size' },
+                { icon: Zap, label: 'Fast', desc: 'Usually under a minute' },
+              ]}
             />
-          </div>
-
-          {url && (
-            <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Page Size</label>
-                  <div className="flex gap-2">
-                    {pageSizeOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => setPageSize(option.value)}
-                        className={cn(
-                          'flex-1 rounded-lg border px-3 py-2 text-sm transition-colors',
-                          pageSize === option.value
-                            ? 'border-primary bg-primary/5'
-                            : 'hover:bg-muted'
-                        )}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Orientation</label>
-                  <div className="flex gap-2">
-                    {orientationOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => setOrientation(option.value)}
-                        className={cn(
-                          'flex-1 rounded-lg border px-3 py-2 text-sm transition-colors',
-                          orientation === option.value
-                            ? 'border-primary bg-primary/5'
-                            : 'hover:bg-muted'
-                        )}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-center">
-                <Button size="lg" onClick={handleProcess}>
-                  <Globe className="mr-2 h-5 w-5" />
-                  Convert to PDF
-                </Button>
-              </div>
-            </>
           )}
-
-          {error && status === 'idle' && (
-            <p className="text-center text-sm text-red-500">{error}</p>
-          )}
-        </div>
+          <TrustStrip details={false} />
+          <p className="mt-2 text-center text-xs text-gray-600">
+            The page is fetched by our server. The PDF is kept for 2 minutes and then deleted.
+          </p>
+        </ToolPanel>
       )}
 
-      <ProcessingStatus
-        status={status}
-        message={error || undefined}
-        fileName={result?.file_name}
-        fileSize={result?.file_size}
-        downloadUrl={result?.download_url}
-        onRetry={handleProcess}
-        onReset={handleReset}
-      />
+      {run.isBusy && (
+        <ProcessingCard
+          stage="processing"
+          fileName={shownUrl}
+          title="Converting the page to PDF"
+          hint="Our server is loading the page. Slow sites can take up to a minute."
+          tone="cyan"
+          onCancel={run.cancel}
+        />
+      )}
+
+      {run.status === 'done' && run.result && (
+        <ResultCard
+          title="Your PDF is ready"
+          fileName={run.result.file_name}
+          fileSize={run.result.file_size}
+          downloadUrl={run.result.download_url}
+          downloadLabel="Download PDF"
+          resetLabel="Convert another page"
+          onReset={startOver}
+          tone="cyan"
+        />
+      )}
+
+      {run.status === 'error' && (
+        <ErrorCard
+          message={run.error || 'Something went wrong.'}
+          fileName={undefined}
+          onRetry={convert}
+          onEdit={run.backToEdit}
+          editLabel="Change the address"
+          onReset={startOver}
+        />
+      )}
     </ToolLayout>
   );
 }

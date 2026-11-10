@@ -1,503 +1,241 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { EyeOff, Upload, FileText, X, Plus, Download, RefreshCw, AlertCircle, CheckCircle2, Copy, Loader2, Mail, Phone, CreditCard, Hash, Code } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { useState } from 'react';
+import { AlertTriangle, CreditCard, EyeOff, Hash, Mail, Phone, Plus, Search, X } from 'lucide-react';
+import { ToolLayout, ToolPanel } from '@/components/shared/ToolLayout';
+import { FileUploader } from '@/components/shared/FileUploader';
+import { FeatureGrid, InfoNote, TrustStrip } from '@/components/shared/TrustStrip';
+import { OptionsPanel, Field, ChoiceGroup } from '@/components/shared/OptionsPanel';
+import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { ProcessingCard } from '@/components/shared/ProcessingCard';
+import { ResultCard } from '@/components/shared/ResultCard';
+import { ErrorCard } from '@/components/shared/ErrorCard';
+import { useToolRun } from '@/hooks/useToolRun';
 import { redactPdf, redactPdfPatterns, TaskResponse } from '@/lib/api';
 
-type Status = 'idle' | 'preview' | 'processing' | 'completed' | 'error';
 type RedactMode = 'terms' | 'patterns';
 type PatternType = 'email' | 'phone' | 'ssn' | 'credit_card' | 'custom';
 
-const patternOptions: { value: PatternType; label: string; description: string; icon: React.ElementType }[] = [
-  { value: 'email', label: 'Email Addresses', description: 'user@example.com', icon: Mail },
-  { value: 'phone', label: 'Phone Numbers', description: '+1-234-567-8900', icon: Phone },
+const MODE_OPTIONS: { value: RedactMode; label: string; description: string }[] = [
+  { value: 'terms', label: 'Search terms', description: 'Redact specific words or phrases' },
+  { value: 'patterns', label: 'Patterns', description: 'Redact emails, phones, SSNs, etc.' },
+];
+
+const PATTERN_OPTIONS: { value: PatternType; label: string; description: string; icon: typeof Mail }[] = [
+  { value: 'email', label: 'Email addresses', description: 'user@example.com', icon: Mail },
+  { value: 'phone', label: 'Phone numbers', description: '+1-234-567-8900', icon: Phone },
   { value: 'ssn', label: 'SSN', description: 'XXX-XX-XXXX', icon: Hash },
-  { value: 'credit_card', label: 'Credit Cards', description: '1234-5678-9012-3456', icon: CreditCard },
+  { value: 'credit_card', label: 'Credit cards', description: '1234-5678-9012-3456', icon: CreditCard },
 ];
 
-const processingSteps = [
-  'Analyzing document...',
-  'Scanning for matches...',
-  'Applying redactions...',
-  'Removing sensitive data...',
-  'Finalizing document...',
-];
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
+const TEXT_INPUT =
+  'min-h-[44px] w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-600/30';
 
 export default function RedactPdfPage() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [mode, setMode] = useState<RedactMode>('terms');
-  const [searchTerms, setSearchTerms] = useState<string[]>([]);
+  const [terms, setTerms] = useState<string[]>([]);
   const [termInput, setTermInput] = useState('');
-  const [selectedPatterns, setSelectedPatterns] = useState<PatternType[]>([]);
+  const [patterns, setPatterns] = useState<PatternType[]>([]);
   const [customPattern, setCustomPattern] = useState('');
-  const [status, setStatus] = useState<Status>('idle');
-  const [result, setResult] = useState<TaskResponse['data'] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [processingStep, setProcessingStep] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const run = useToolRun<TaskResponse['data']>();
+  const file = files[0];
 
-  useEffect(() => {
-    if (status === 'processing') {
-      const interval = setInterval(() => {
-        setProcessingStep((prev) => (prev + 1) % processingSteps.length);
-      }, 1500);
-      return () => clearInterval(interval);
-    }
-  }, [status]);
+  const ready = mode === 'terms' ? terms.length > 0 : patterns.length > 0 || !!customPattern;
 
-  const handleFileSelect = useCallback((selectedFile: File) => {
-    if (selectedFile.type === 'application/pdf') {
-      setFile(selectedFile);
-      setStatus('preview');
-      setError(null);
-    }
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile) handleFileSelect(droppedFile);
-  }, [handleFileSelect]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  const addSearchTerm = () => {
-    if (termInput.trim() && !searchTerms.includes(termInput.trim())) {
-      setSearchTerms([...searchTerms, termInput.trim()]);
-      setTermInput('');
-    }
-  };
-
-  const removeSearchTerm = (term: string) => {
-    setSearchTerms(searchTerms.filter((t) => t !== term));
-  };
-
-  const togglePattern = (pattern: PatternType) => {
-    if (selectedPatterns.includes(pattern)) {
-      setSelectedPatterns(selectedPatterns.filter((p) => p !== pattern));
-    } else {
-      setSelectedPatterns([...selectedPatterns, pattern]);
-    }
-  };
-
-  const handleProcess = async () => {
-    if (!file) return;
-
-    setStatus('processing');
-    setProcessingStep(0);
-    setError(null);
-
-    try {
-      let response: TaskResponse;
-
-      if (mode === 'terms') {
-        if (searchTerms.length === 0) {
-          setError('Please add at least one search term');
-          setStatus('error');
-          return;
-        }
-        response = await redactPdf(file, searchTerms);
-      } else {
-        if (selectedPatterns.length === 0 && !customPattern) {
-          setError('Please select at least one pattern');
-          setStatus('error');
-          return;
-        }
-        response = await redactPdfPatterns(
-          file,
-          selectedPatterns,
-          customPattern || undefined
-        );
-      }
-
-      if (response.success) {
-        setResult(response.data);
-        setStatus('completed');
-      } else {
-        setError(response.error || 'Processing failed');
-        setStatus('error');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'An error occurred');
-      setStatus('error');
-    }
-  };
-
-  const handleReset = () => {
-    setFile(null);
-    setMode('terms');
-    setSearchTerms([]);
+  const addTerm = () => {
+    const t = termInput.trim();
+    if (t && !terms.includes(t)) setTerms([...terms, t]);
     setTermInput('');
-    setSelectedPatterns([]);
-    setCustomPattern('');
-    setStatus('idle');
-    setResult(null);
-    setError(null);
-    setProcessingStep(0);
   };
+  const togglePattern = (p: PatternType) =>
+    setPatterns((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]));
 
-  const copyToClipboard = async () => {
-    if (result?.download_url) {
-      await navigator.clipboard.writeText(result.download_url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+  const redact = () => {
+    if (!file || !ready) return;
+    run.run((req) =>
+      mode === 'terms'
+        ? redactPdf(file, terms, undefined, req)
+        : redactPdfPatterns(file, patterns, customPattern || undefined, req)
+    );
+  };
+  const startOver = () => {
+    run.reset();
+    setFiles([]);
+    setMode('terms');
+    setTerms([]);
+    setTermInput('');
+    setPatterns([]);
+    setCustomPattern('');
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-zinc-100">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-slate-600 via-gray-600 to-zinc-700 text-white">
-        <div className="mx-auto max-w-4xl px-4 py-12 text-center">
-          <div className="mb-4 inline-flex items-center justify-center rounded-2xl bg-white/20 p-4 backdrop-blur-sm">
-            <EyeOff className="h-10 w-10" />
-          </div>
-          <h1 className="mb-3 text-4xl font-bold">Redact PDF</h1>
-          <p className="text-lg text-slate-200">
-            Permanently remove sensitive information from PDF documents
-          </p>
-        </div>
-      </div>
+    <ToolLayout
+      title="Redact PDF"
+      description="Permanently remove sensitive information from PDF documents"
+      icon={EyeOff}
+      tone="indigo"
+      status={run.announcement}
+    >
+      {run.status === 'idle' && (
+        <ToolPanel aria-label="Redact a PDF">
+          <FileUploader accept={{ 'application/pdf': ['.pdf'] }} multiple={false} files={files} onFilesChange={setFiles} tone="indigo" typeLabel="PDF" />
 
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        {/* Idle State - Upload */}
-        {status === 'idle' && (
-          <Card className="border-2 border-dashed border-slate-200 bg-white/80 backdrop-blur-sm">
-            <CardContent className="p-8">
-              <div
-                className={`rounded-xl border-2 border-dashed p-12 text-center transition-all ${
-                  isDragging
-                    ? 'border-slate-500 bg-slate-50'
-                    : 'border-slate-200 hover:border-slate-400 hover:bg-slate-50/50'
-                }`}
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf"
-                  className="hidden"
-                  onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-                />
-                <div className="mb-4 inline-flex rounded-full bg-slate-100 p-4">
-                  <Upload className="h-8 w-8 text-slate-600" />
-                </div>
-                <h3 className="mb-2 text-xl font-semibold text-slate-800">
-                  Drop your PDF here
-                </h3>
-                <p className="mb-4 text-slate-500">or click to browse</p>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="rounded-lg bg-gradient-to-r from-slate-600 to-gray-700 px-6 py-3 font-medium text-white shadow-lg transition-all hover:from-slate-700 hover:to-gray-800 hover:shadow-xl"
-                >
-                  Select PDF File
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+          {!file && (
+            <FeatureGrid
+              tone="indigo"
+              items={[
+                { icon: Search, label: 'Search terms', desc: 'Words or phrases you list' },
+                { icon: Mail, label: 'Patterns', desc: 'Emails, phones, SSNs, cards' },
+                { icon: EyeOff, label: 'Permanent', desc: 'Text is removed, not just covered' },
+              ]}
+            />
+          )}
 
-        {/* Preview State - File loaded, configure options */}
-        {status === 'preview' && file && (
-          <div className="space-y-6">
-            {/* File Card */}
-            <Card className="bg-white shadow-lg">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="rounded-lg bg-slate-100 p-3">
-                      <FileText className="h-8 w-8 text-slate-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">{file.name}</p>
-                      <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleReset}
-                    className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
+          {file && (
+            <div className="mt-6 space-y-5">
+              <OptionsPanel title="Redaction mode">
+                <ChoiceGroup label="What to redact" value={mode} onChange={setMode} options={MODE_OPTIONS} tone="indigo" columns={2} />
 
-            {/* Redaction Mode */}
-            <Card className="bg-white shadow-lg">
-              <CardContent className="p-6">
-                <h3 className="mb-4 font-semibold text-gray-900">Redaction Mode</h3>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <button
-                    onClick={() => setMode('terms')}
-                    className={`rounded-xl border-2 p-4 text-left transition-all ${
-                      mode === 'terms'
-                        ? 'border-slate-500 bg-slate-50 ring-2 ring-slate-200'
-                        : 'border-gray-200 hover:border-slate-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="mb-2 flex items-center gap-2">
-                      <FileText className={`h-5 w-5 ${mode === 'terms' ? 'text-slate-600' : 'text-gray-400'}`} />
-                      <span className="font-medium">Search Terms</span>
-                    </div>
-                    <p className="text-sm text-gray-500">Redact specific words or phrases</p>
-                  </button>
-                  <button
-                    onClick={() => setMode('patterns')}
-                    className={`rounded-xl border-2 p-4 text-left transition-all ${
-                      mode === 'patterns'
-                        ? 'border-slate-500 bg-slate-50 ring-2 ring-slate-200'
-                        : 'border-gray-200 hover:border-slate-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="mb-2 flex items-center gap-2">
-                      <Code className={`h-5 w-5 ${mode === 'patterns' ? 'text-slate-600' : 'text-gray-400'}`} />
-                      <span className="font-medium">Patterns</span>
-                    </div>
-                    <p className="text-sm text-gray-500">Redact emails, phones, SSNs, etc.</p>
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Terms Mode Options */}
-            {mode === 'terms' && (
-              <Card className="bg-white shadow-lg">
-                <CardContent className="p-6">
-                  <h3 className="mb-4 font-semibold text-gray-900">Search Terms to Redact</h3>
-                  <div className="mb-4 flex gap-2">
-                    <input
-                      type="text"
-                      value={termInput}
-                      onChange={(e) => setTermInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && addSearchTerm()}
-                      placeholder="Enter text to redact..."
-                      className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                    />
+                {mode === 'terms' ? (
+                  <div className="space-y-3">
+                    <Field label="Text to redact" hint="Press Enter or the add button. Each term is blacked out wherever it appears.">
+                      <input
+                        type="text"
+                        value={termInput}
+                        onChange={(e) => setTermInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addTerm();
+                          }
+                        }}
+                        placeholder="Enter text to redact..."
+                        className={TEXT_INPUT}
+                      />
+                    </Field>
                     <button
-                      onClick={addSearchTerm}
-                      className="rounded-lg bg-slate-600 px-4 py-2 text-white hover:bg-slate-700"
+                      type="button"
+                      onClick={addTerm}
+                      disabled={!termInput.trim()}
+                      className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-800 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 disabled:opacity-50"
                     >
-                      <Plus className="h-5 w-5" />
+                      <Plus className="h-4 w-4" aria-hidden="true" />
+                      Add term
                     </button>
+                    {terms.length > 0 && (
+                      <ul aria-label="Terms to redact" className="flex flex-wrap gap-2">
+                        {terms.map((term) => (
+                          <li key={term} className="inline-flex items-center gap-1 rounded-full bg-indigo-50 pl-4 text-sm font-medium text-indigo-800">
+                            <span className="max-w-[180px] truncate">{term}</span>
+                            <button
+                              type="button"
+                              onClick={() => setTerms(terms.filter((t) => t !== term))}
+                              aria-label={`Remove ${term}`}
+                              className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+                            >
+                              <X className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
-                  {searchTerms.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {searchTerms.map((term) => (
-                        <span
-                          key={term}
-                          className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700"
-                        >
-                          <span className="max-w-[150px] truncate">{term}</span>
-                          <button
-                            onClick={() => removeSearchTerm(term)}
-                            className="rounded-full p-0.5 hover:bg-slate-200"
+                ) : (
+                  <div className="space-y-4">
+                    <fieldset>
+                      <legend className="mb-2 text-sm font-medium text-gray-800">Patterns to redact</legend>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {PATTERN_OPTIONS.map(({ value, label, description, icon: Icon }) => (
+                          <label
+                            key={value}
+                            className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg border-2 border-gray-200 bg-white px-3 py-2 text-sm has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
                           >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">Add terms that will be blacked out in the PDF</p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Patterns Mode Options */}
-            {mode === 'patterns' && (
-              <Card className="bg-white shadow-lg">
-                <CardContent className="p-6">
-                  <h3 className="mb-4 font-semibold text-gray-900">Select Patterns to Redact</h3>
-                  <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {patternOptions.map((option) => {
-                      const Icon = option.icon;
-                      return (
-                        <button
-                          key={option.value}
-                          onClick={() => togglePattern(option.value)}
-                          className={`rounded-xl border-2 p-4 text-left transition-all ${
-                            selectedPatterns.includes(option.value)
-                              ? 'border-slate-500 bg-slate-50 ring-2 ring-slate-200'
-                              : 'border-gray-200 hover:border-slate-300 hover:bg-gray-50'
-                          }`}
-                        >
-                          <div className="mb-2 flex items-center gap-2">
-                            <Icon className={`h-5 w-5 ${selectedPatterns.includes(option.value) ? 'text-slate-600' : 'text-gray-400'}`} />
-                            <span className="font-medium">{option.label}</span>
-                          </div>
-                          <p className="text-sm text-gray-500">{option.description}</p>
-                        </button>
-                      );
-                    })}
+                            <input
+                              type="checkbox"
+                              checked={patterns.includes(value)}
+                              onChange={() => togglePattern(value)}
+                              className="h-4 w-4 accent-indigo-700"
+                            />
+                            <Icon className="h-4 w-4 shrink-0 text-gray-600" aria-hidden="true" />
+                            <span className="min-w-0">
+                              <span className="block font-medium text-gray-900">{label}</span>
+                              <span className="block truncate text-xs text-gray-600">{description}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <Field label="Custom regular expression (optional)">
+                      <input type="text" value={customPattern} onChange={(e) => setCustomPattern(e.target.value)} placeholder="e.g., \d{3}-\d{2}-\d{4}" className={TEXT_INPUT} />
+                    </Field>
                   </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-gray-700">Custom Regex (optional)</label>
-                    <input
-                      type="text"
-                      value={customPattern}
-                      onChange={(e) => setCustomPattern(e.target.value)}
-                      placeholder="e.g., \d{3}-\d{2}-\d{4}"
-                      className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                )}
+              </OptionsPanel>
 
-            {/* Warning */}
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
-                <div>
-                  <p className="font-medium text-amber-800">Permanent Redaction</p>
-                  <p className="text-sm text-amber-700">Redacted content cannot be recovered. The original text is permanently removed from the PDF.</p>
-                </div>
+              <InfoNote icon={<AlertTriangle className="h-4 w-4 text-amber-700" />} className="bg-amber-50 text-amber-900">
+                <strong>Permanent redaction.</strong> Redacted content cannot be recovered: the original text is removed
+                from the PDF. Keep your original file.
+              </InfoNote>
+
+              <div className="flex flex-col items-center gap-2">
+                <PrimaryButton tone="indigo" icon={<EyeOff className="h-5 w-5" />} onClick={redact} disabled={!ready}>
+                  Redact PDF
+                </PrimaryButton>
+                {!ready && (
+                  <p className="text-xs text-gray-600">
+                    {mode === 'terms' ? 'Add at least one term to continue.' : 'Choose at least one pattern to continue.'}
+                  </p>
+                )}
               </div>
             </div>
+          )}
+          <TrustStrip />
+        </ToolPanel>
+      )}
 
-            {/* Process Button */}
-            <button
-              onClick={handleProcess}
-              disabled={(mode === 'terms' && searchTerms.length === 0) || (mode === 'patterns' && selectedPatterns.length === 0 && !customPattern)}
-              className="w-full rounded-xl bg-gradient-to-r from-slate-600 to-gray-700 py-4 text-lg font-semibold text-white shadow-lg transition-all hover:from-slate-700 hover:to-gray-800 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <EyeOff className="mr-2 inline-block h-5 w-5" />
-              Redact PDF
-            </button>
-          </div>
-        )}
+      {run.isBusy && (
+        <ProcessingCard
+          stage={run.status === 'uploading' ? 'uploading' : 'processing'}
+          progress={run.uploadProgress}
+          loaded={run.uploadLoaded}
+          total={run.uploadTotal}
+          fileName={file?.name}
+          fileSize={file?.size}
+          title="Finding and removing sensitive text"
+          tone="indigo"
+          onCancel={run.cancel}
+        />
+      )}
 
-        {/* Processing State */}
-        {status === 'processing' && (
-          <Card className="bg-white shadow-lg">
-            <CardContent className="p-12 text-center">
-              <div className="mb-6 inline-flex rounded-full bg-slate-100 p-6">
-                <Loader2 className="h-12 w-12 animate-spin text-slate-600" />
-              </div>
-              <h3 className="mb-2 text-xl font-semibold text-gray-900">Redacting PDF...</h3>
-              <p className="mb-6 text-gray-500">{processingSteps[processingStep]}</p>
-              <div className="mx-auto flex max-w-md justify-center gap-2">
-                {processingSteps.map((_, index) => (
-                  <div
-                    key={index}
-                    className={`h-2 w-full rounded-full transition-all ${
-                      index <= processingStep ? 'bg-slate-500' : 'bg-gray-200'
-                    }`}
-                  />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+      {run.status === 'done' && run.result && (
+        <ResultCard
+          title="Your redacted PDF is ready"
+          fileName={run.result.file_name}
+          fileSize={run.result.file_size}
+          downloadUrl={run.result.download_url}
+          downloadLabel="Download redacted PDF"
+          resetLabel="Redact another PDF"
+          onReset={startOver}
+          tone="indigo"
+        >
+          <p className="text-center text-xs text-gray-600">
+            Open the file and check that everything you wanted removed is gone before you share it.
+          </p>
+        </ResultCard>
+      )}
 
-        {/* Completed State */}
-        {status === 'completed' && result && (
-          <Card className="bg-white shadow-lg">
-            <CardContent className="p-8">
-              <div className="mb-6 text-center">
-                <div className="mb-4 inline-flex rounded-full bg-green-100 p-4">
-                  <CheckCircle2 className="h-10 w-10 text-green-600" />
-                </div>
-                <h3 className="mb-2 text-xl font-semibold text-gray-900">Redaction Complete!</h3>
-                <p className="text-gray-500">Sensitive information has been permanently removed</p>
-              </div>
-
-              <div className="mb-6 rounded-xl bg-gray-50 p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-8 w-8 text-slate-600" />
-                    <div>
-                      <p className="font-medium text-gray-900">{result.file_name}</p>
-                      <p className="text-sm text-gray-500">{formatFileSize(result.file_size || 0)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <EyeOff className="h-4 w-4" />
-                    <span>Redacted</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <a
-                  href={result.download_url}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-slate-600 to-gray-700 py-3 font-medium text-white shadow-lg transition-all hover:from-slate-700 hover:to-gray-800"
-                >
-                  <Download className="h-5 w-5" />
-                  Download PDF
-                </a>
-                <button
-                  onClick={copyToClipboard}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-gray-300 px-6 py-3 font-medium text-gray-700 transition-all hover:bg-gray-50"
-                >
-                  {copied ? <CheckCircle2 className="h-5 w-5 text-green-600" /> : <Copy className="h-5 w-5" />}
-                  {copied ? 'Copied!' : 'Copy Link'}
-                </button>
-              </div>
-
-              <button
-                onClick={handleReset}
-                className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3 font-medium text-gray-600 transition-all hover:bg-gray-100"
-              >
-                <RefreshCw className="h-5 w-5" />
-                Redact Another PDF
-              </button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Error State */}
-        {status === 'error' && (
-          <Card className="border-red-200 bg-white shadow-lg">
-            <CardContent className="p-8 text-center">
-              <div className="mb-4 inline-flex rounded-full bg-red-100 p-4">
-                <AlertCircle className="h-10 w-10 text-red-600" />
-              </div>
-              <h3 className="mb-2 text-xl font-semibold text-gray-900">Processing Failed</h3>
-              <p className="mb-6 text-red-600">{error}</p>
-              <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-                <button
-                  onClick={handleProcess}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-slate-600 px-6 py-3 font-medium text-white hover:bg-slate-700"
-                >
-                  <RefreshCw className="h-5 w-5" />
-                  Try Again
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-gray-300 px-6 py-3 font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Start Over
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </div>
+      {run.status === 'error' && (
+        <ErrorCard
+          message={run.error || 'Something went wrong.'}
+          fileName={file?.name}
+          fileSize={file?.size}
+          onRetry={redact}
+          onEdit={run.backToEdit}
+          editLabel="Change what to redact"
+          onReset={startOver}
+        />
+      )}
+    </ToolLayout>
   );
 }

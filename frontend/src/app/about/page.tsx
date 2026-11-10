@@ -33,7 +33,7 @@ export default function AboutPage() {
         </svg>
       ),
       title: 'Privacy First',
-      description: 'Your files are automatically deleted within 1 hour. We never access, read, or share your documents.',
+      description: 'Your results are deleted 2 minutes after processing, and uploads never stay longer than 1 hour. We never access, read, or share your documents.',
     },
     {
       icon: (

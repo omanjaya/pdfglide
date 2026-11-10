@@ -122,7 +122,7 @@ export default function TermsOfServicePage() {
               <ul className="list-disc pl-6 text-gray-600 dark:text-gray-300 space-y-2">
                 <li>Maximum file size: 100MB per file</li>
                 <li>Maximum files per request: 20 files</li>
-                <li>Processed files are available for download for 1 hour</li>
+                <li>Processed files are available for download for 2 minutes, then deleted</li>
                 <li>Rate limiting may apply to prevent abuse</li>
               </ul>
               <p className="text-gray-600 dark:text-gray-300 mt-4">

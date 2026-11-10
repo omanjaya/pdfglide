@@ -60,7 +60,7 @@ export default function PrivacyPolicyPage() {
               </p>
               <ul className="list-disc pl-6 text-gray-600 dark:text-gray-300 mb-4 space-y-2">
                 <li>Processed on our secure servers</li>
-                <li>Automatically deleted within 1 hour after processing</li>
+                <li>Results are deleted 2 minutes after processing; uploads are never kept longer than 1 hour</li>
                 <li>Never shared with third parties</li>
                 <li>Not used for any purpose other than providing the requested service</li>
               </ul>

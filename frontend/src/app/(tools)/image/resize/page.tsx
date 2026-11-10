@@ -1,468 +1,370 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
-import {
-  Maximize2,
-  Download,
-  RefreshCw,
-  Upload,
-  Check,
-  ImageIcon,
-  X,
-  ArrowRight,
-  Loader2,
-  Link,
-  Unlink,
-  Smartphone,
-  Monitor,
-  Square,
-  RectangleHorizontal,
-} from 'lucide-react';
-import { ToolLayout } from '@/components/shared/ToolLayout';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Link2, Link2Off, Maximize2, Percent, Ruler, ScanLine } from 'lucide-react';
+import { ToolLayout, ToolPanel } from '@/components/shared/ToolLayout';
+import { FileUploader } from '@/components/shared/FileUploader';
+import { FeatureGrid, InfoNote, TrustStrip } from '@/components/shared/TrustStrip';
+import { OptionsPanel, ChoiceGroup, Field } from '@/components/shared/OptionsPanel';
+import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { ProcessingCard } from '@/components/shared/ProcessingCard';
+import { ResultCard, StatTile } from '@/components/shared/ResultCard';
+import { ErrorCard } from '@/components/shared/ErrorCard';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Label } from '@/components/ui/Label';
 import { Input } from '@/components/ui/Input';
-import { api, getDownloadUrl } from '@/lib/api';
+import { ImagePreview, IMAGE_ACCEPT, IMAGE_PASTE_HINT, IMAGE_TYPE_LABEL, bytes, useImageInfo, usePasteImage } from '@/components/image/imageTools';
+import { useToolRun } from '@/hooks/useToolRun';
+import { resizeImage, ImageTaskResponse, ResizeImageStats } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
-type Status = 'idle' | 'preview' | 'processing' | 'completed' | 'error';
+type Result = ImageTaskResponse<ResizeImageStats>['data'];
+type Mode = 'pixels' | 'percent';
+type Fit = 'exact' | 'cover';
 
-const SIZE_PRESETS = [
-  { label: 'Instagram', width: 1080, height: 1080, icon: Square },
-  { label: 'Facebook', width: 1200, height: 630, icon: RectangleHorizontal },
-  { label: 'Twitter', width: 1600, height: 900, icon: RectangleHorizontal },
-  { label: 'HD', width: 1920, height: 1080, icon: Monitor },
-  { label: '4K', width: 3840, height: 2160, icon: Monitor },
-  { label: 'Mobile', width: 375, height: 812, icon: Smartphone },
-];
+const MAX_SIDE = 10000;
+const MAX_PIXELS = 100_000_000;
+const WIDTH_PRESETS = [3840, 1920, 1280, 1080, 800];
+const PERCENT_PRESETS = [25, 50, 75, 150, 200];
 
-const PROCESSING_STEPS = [
-  { label: 'Loading image' },
-  { label: 'Calculating dimensions' },
-  { label: 'Resizing' },
-  { label: 'Finalizing' },
-];
+/** Python's round(): halves go to the even number (the server's rounding). */
+function pyRound(x: number): number {
+  const f = Math.floor(x);
+  const d = x - f;
+  if (d < 0.5) return f;
+  if (d > 0.5) return f + 1;
+  return f % 2 === 0 ? f : f + 1;
+}
+
+/** Same arithmetic as the server (backend/app/processors/image/resizer.py compute_size). */
+function computeSize(sw: number, sh: number, width: number | undefined, height: number | undefined, fit: 'contain' | Fit, pct: number | undefined, noUpscale: boolean): [number, number] {
+  let w: number;
+  let h: number;
+  if (pct) {
+    w = Math.max(1, pyRound((sw * pct) / 100));
+    h = Math.max(1, pyRound((sh * pct) / 100));
+  } else if (fit === 'contain') {
+    if (width && height) {
+      if (width * sh <= height * sw) [w, h] = [width, Math.max(1, pyRound((sh * width) / sw))];
+      else [w, h] = [Math.max(1, pyRound((sw * height) / sh)), height];
+    } else if (width) [w, h] = [width, Math.max(1, pyRound((sh * width) / sw))];
+    else [w, h] = [Math.max(1, pyRound((sw * (height as number)) / sh)), height as number];
+  } else {
+    w = width || Math.max(1, pyRound((sw * (height as number)) / sh));
+    h = height || Math.max(1, pyRound((sh * (width as number)) / sw));
+  }
+  if (noUpscale && (w > sw || h > sh)) {
+    if (fit === 'contain' || pct) {
+      const scale = Math.min(sw / w, sh / h, 1);
+      [w, h] = [Math.max(1, pyRound(w * scale)), Math.max(1, pyRound(h * scale))];
+    } else {
+      [w, h] = [Math.min(w, sw), Math.min(h, sh)];
+    }
+  }
+  return [w, h];
+}
+
+const digits = (v: string) => v.replace(/\D/g, '').slice(0, 5);
 
 export default function ResizeImagePage() {
   const [files, setFiles] = useState<File[]>([]);
-  const [status, setStatus] = useState<Status>('idle');
-  const [error, setError] = useState<string | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
+  const [mode, setMode] = useState<Mode>('pixels');
+  const [width, setWidth] = useState('');
+  const [height, setHeight] = useState('');
+  const [anchor, setAnchor] = useState<'w' | 'h'>('w');
+  const [locked, setLocked] = useState(true);
+  const [fit, setFit] = useState<Fit>('exact');
+  const [percent, setPercent] = useState('50');
+  const [noUpscale, setNoUpscale] = useState(false);
+  const [quality, setQuality] = useState(90);
+  const run = useToolRun<Result>();
+  const file = files[0];
+  const info = useImageInfo(file);
+  usePasteImage((f) => setFiles([f]), run.status === 'idle');
 
-  const [originalPreview, setOriginalPreview] = useState<string | null>(null);
-  const [resultPreview, setResultPreview] = useState<string | null>(null);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [fileSize, setFileSize] = useState<number | null>(null);
-  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
-  const [newDimensions, setNewDimensions] = useState<{ width: number; height: number } | null>(null);
+  const sw = info && !info.failed ? info.width : 0;
+  const sh = info && !info.failed ? info.height : 0;
 
-  const [width, setWidth] = useState<string>('');
-  const [height, setHeight] = useState<string>('');
-  const [maintainRatio, setMaintainRatio] = useState(true);
-  const [processingStep, setProcessingStep] = useState(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
+  // Start from the picture's own size.
   useEffect(() => {
-    if (files.length > 0) {
-      const url = URL.createObjectURL(files[0]);
-      setOriginalPreview(url);
-      setStatus('preview');
-
-      const img = new Image();
-      img.onload = () => {
-        setImageDimensions({ width: img.width, height: img.height });
-        setWidth(img.width.toString());
-        setHeight(img.height.toString());
-      };
-      img.src = url;
-
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setOriginalPreview(null);
-      setImageDimensions(null);
-      setStatus('idle');
+    if (sw && sh) {
+      setWidth(String(sw));
+      setHeight(String(sh));
+      setAnchor('w');
     }
-  }, [files]);
+  }, [sw, sh, info?.url]);
 
-  useEffect(() => {
-    if (status === 'processing') {
-      setProcessingStep(0);
-      let step = 0;
-      const interval = setInterval(() => {
-        step++;
-        if (step < PROCESSING_STEPS.length) setProcessingStep(step);
-      }, 600);
-      return () => clearInterval(interval);
-    }
-  }, [status]);
-
-  const handleWidthChange = (value: string) => {
-    setWidth(value);
-    if (maintainRatio && imageDimensions && value) {
-      const ratio = imageDimensions.height / imageDimensions.width;
-      setHeight(Math.round(Number(value) * ratio).toString());
-    }
+  const setW = (v: string) => {
+    setWidth(v);
+    setAnchor('w');
+    if (locked && sw && Number(v) > 0) setHeight(String(Math.max(1, pyRound((sh * Number(v)) / sw))));
+  };
+  const setH = (v: string) => {
+    setHeight(v);
+    setAnchor('h');
+    if (locked && sh && Number(v) > 0) setWidth(String(Math.max(1, pyRound((sw * Number(v)) / sh))));
+  };
+  const toggleLock = () => {
+    const next = !locked;
+    setLocked(next);
+    if (next && sw) (anchor === 'w' ? setW : setH)(anchor === 'w' ? width : height);
   };
 
-  const handleHeightChange = (value: string) => {
-    setHeight(value);
-    if (maintainRatio && imageDimensions && value) {
-      const ratio = imageDimensions.width / imageDimensions.height;
-      setWidth(Math.round(Number(value) * ratio).toString());
+  const pct = Number(percent);
+  const wN = Number(width);
+  const hN = Number(height);
+
+  // What the server will be asked for, and the size it will produce.
+  const plan = useMemo(() => {
+    if (!sw || !sh) return null;
+    if (mode === 'percent') {
+      if (!(pct >= 1 && pct <= 1000)) return { error: 'Enter a percentage between 1 and 1000.' };
+      return { size: computeSize(sw, sh, undefined, undefined, 'contain', pct, noUpscale), pct, fit: 'contain' as const };
     }
-  };
-
-  const applyPreset = (preset: typeof SIZE_PRESETS[0]) => {
-    setWidth(preset.width.toString());
-    setHeight(preset.height.toString());
-    setMaintainRatio(false);
-  };
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const droppedFiles = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'));
-    if (droppedFiles.length > 0) setFiles([droppedFiles[0]]);
-  }, []);
-
-  const handleProcess = async () => {
-    if (files.length === 0 || (!width && !height)) return;
-    setStatus('processing');
-    setError(null);
-
-    try {
-      const formData = new FormData();
-      formData.append('file', files[0]);
-      if (width) formData.append('width', width);
-      if (height) formData.append('height', height);
-      formData.append('maintain_ratio', maintainRatio.toString());
-
-      const response = await api.post('/image/resize', formData);
-
-      if (response.data.success) {
-        const data = response.data.data;
-        setDownloadUrl(data.download_url);
-        setFileName(data.file_name);
-        setFileSize(data.file_size);
-        setResultPreview(getDownloadUrl(data.download_url));
-        setNewDimensions({ width: Number(width), height: Number(height) });
-        setStatus('completed');
-      } else {
-        setError(response.data.error || 'Resize failed');
-        setStatus('error');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'An error occurred');
-      setStatus('error');
+    const okW = wN >= 1 && wN <= MAX_SIDE;
+    const okH = hN >= 1 && hN <= MAX_SIDE;
+    if (locked) {
+      if (anchor === 'w' ? !okW : !okH) return { error: `Enter a ${anchor === 'w' ? 'width' : 'height'} from 1 to ${MAX_SIDE} px.` };
+      const w = anchor === 'w' ? wN : undefined;
+      const h = anchor === 'h' ? hN : undefined;
+      return { size: computeSize(sw, sh, w, h, 'contain', undefined, noUpscale), w, h, fit: 'contain' as const };
     }
-  };
+    if (!okW || !okH) return { error: `Width and height must each be from 1 to ${MAX_SIDE} px.` };
+    return { size: computeSize(sw, sh, wN, hN, fit, undefined, noUpscale), w: wN, h: hN, fit };
+  }, [sw, sh, mode, pct, wN, hN, locked, anchor, fit, noUpscale]);
 
-  const handleReset = () => {
+  const size = plan && 'size' in plan ? plan.size : null;
+  const planError = plan && 'error' in plan ? plan.error : null;
+  const tooLarge = size ? size[0] * size[1] > MAX_PIXELS : false;
+  const upscales = size ? size[0] > sw || size[1] > sh : false;
+  const unchanged = size ? size[0] === sw && size[1] === sh : false;
+  const canRun = !!file && !!size && !tooLarge && !unchanged;
+
+  const resize = () => {
+    if (!file || !plan || !('size' in plan)) return;
+    const sendQuality = /jpeg|webp/.test(file.type) ? quality : undefined;
+    run.run((req) =>
+      resizeImage(file, plan.w, plan.h, plan.fit === 'contain', {
+        ...req,
+        fit: plan.fit,
+        percentage: plan.pct,
+        noUpscale,
+        quality: sendQuality,
+      })
+    );
+  };
+  const startOver = () => {
+    run.reset();
     setFiles([]);
-    setStatus('idle');
-    setOriginalPreview(null);
-    setResultPreview(null);
-    setDownloadUrl(null);
-    setFileName(null);
-    setFileSize(null);
-    setImageDimensions(null);
-    setNewDimensions(null);
-    setWidth('');
-    setHeight('');
-    setError(null);
+    setMode('pixels');
+    setLocked(true);
+    setFit('exact');
+    setPercent('50');
+    setNoUpscale(false);
+    setQuality(90);
   };
 
-  const handleDownload = () => {
-    if (downloadUrl) {
-      const link = document.createElement('a');
-      link.href = getDownloadUrl(downloadUrl);
-      link.download = fileName || 'resized.jpg';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  };
+  const meta = run.result?.metadata;
+  const dims = (w?: number, h?: number) => (w && h ? `${w} × ${h} px` : '');
 
   return (
     <ToolLayout
       title="Resize Image"
-      description="Change image dimensions to any size you need"
+      description="Change the size of a JPG, PNG, WebP or GIF by pixels or percentage."
       icon={Maximize2}
-      color="bg-gradient-to-br from-purple-500 to-pink-500"
+      tone="purple"
+      status={run.announcement}
     >
-      {/* Upload State */}
-      {status === 'idle' && (
-        <div className="space-y-8">
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`
-              relative cursor-pointer rounded-2xl border-2 border-dashed p-8 sm:p-12
-              transition-all duration-300 ease-out
-              ${isDragOver
-                ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/20 scale-[1.02]'
-                : 'border-border hover:border-purple-400 hover:bg-muted/50'}
-            `}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              onChange={(e) => e.target.files?.[0] && setFiles([e.target.files[0]])}
-              className="hidden"
+      {run.status === 'idle' && (
+        <ToolPanel aria-label="Resize an image">
+          <FileUploader accept={IMAGE_ACCEPT} multiple={false} files={files} onFilesChange={setFiles} tone="purple" typeLabel={IMAGE_TYPE_LABEL} title="Drag & drop an image here" hint={IMAGE_PASTE_HINT} />
+
+          {!file && (
+            <FeatureGrid
+              tone="purple"
+              items={[
+                { icon: Ruler, label: 'Exact pixels', desc: 'See the new size before you start' },
+                { icon: Percent, label: 'Or by percentage', desc: 'Half size, double size' },
+                { icon: ScanLine, label: 'Keeps the shape', desc: 'Aspect ratio lock, upright photos' },
+              ]}
             />
-            <div className="flex flex-col items-center text-center">
-              <div className={`mb-4 rounded-full p-4 transition-all duration-300 ${isDragOver ? 'bg-purple-500 text-white scale-110' : 'bg-muted'}`}>
-                <Upload className="h-8 w-8" />
-              </div>
-              <h3 className="text-lg font-semibold">{isDragOver ? 'Drop your image here' : 'Upload an image'}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">Drag & drop or click to browse</p>
-              <Button className="mt-6" variant="default">
-                <ImageIcon className="mr-2 h-4 w-4" />
-                Select Image
-              </Button>
-            </div>
-          </div>
+          )}
 
-          <div className="space-y-3">
-            <p className="text-sm font-medium text-center text-muted-foreground">Popular sizes</p>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {SIZE_PRESETS.map((preset) => (
-                <div key={preset.label} className="flex flex-col items-center p-3 rounded-xl bg-muted/50 text-center">
-                  <preset.icon className="h-5 w-5 text-purple-500 mb-1" />
-                  <p className="text-xs font-medium">{preset.label}</p>
-                  <p className="text-[10px] text-muted-foreground">{preset.width}×{preset.height}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+          {file && (
+            <div className="mt-2 space-y-5">
+              <ImagePreview file={file} info={info} />
 
-      {/* Preview State */}
-      {status === 'preview' && originalPreview && (
-        <div className="space-y-6">
-          <Card className="overflow-hidden">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
-              <div className="relative bg-muted aspect-square lg:aspect-auto lg:min-h-[400px]">
-                <div className="absolute inset-0 flex items-center justify-center p-4">
-                  <img src={originalPreview} alt="Preview" className="max-w-full max-h-full object-contain rounded-lg shadow-lg" />
-                </div>
-                <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-                  <div className="bg-black/70 backdrop-blur-sm rounded-lg px-3 py-1.5 text-white text-xs">
-                    {imageDimensions && `${imageDimensions.width} × ${imageDimensions.height}`}
-                  </div>
-                  <div className="bg-black/70 backdrop-blur-sm rounded-lg px-3 py-1.5 text-white text-xs">
-                    {files[0] && formatFileSize(files[0].size)}
-                  </div>
-                </div>
-              </div>
-
-              <CardContent className="p-6 space-y-6 bg-card">
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-medium truncate">{files[0]?.name}</h3>
-                    <p className="text-sm text-muted-foreground">Set new dimensions</p>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={handleReset}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                {/* Dimension inputs */}
-                <div className="space-y-4">
-                  <div className="flex items-end gap-3">
-                    <div className="flex-1 space-y-1.5">
-                      <Label className="text-xs">Width (px)</Label>
-                      <Input
-                        type="number"
-                        value={width}
-                        onChange={(e) => handleWidthChange(e.target.value)}
-                        min="1"
-                        max="10000"
-                        className="h-12 text-lg font-mono"
-                      />
-                    </div>
-                    <button
-                      onClick={() => setMaintainRatio(!maintainRatio)}
-                      className={`h-12 w-12 rounded-lg border-2 flex items-center justify-center transition-all
-                        ${maintainRatio ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/30 text-purple-500' : 'border-border text-muted-foreground'}`}
-                      title={maintainRatio ? 'Aspect ratio locked' : 'Aspect ratio unlocked'}
-                    >
-                      {maintainRatio ? <Link className="h-5 w-5" /> : <Unlink className="h-5 w-5" />}
-                    </button>
-                    <div className="flex-1 space-y-1.5">
-                      <Label className="text-xs">Height (px)</Label>
-                      <Input
-                        type="number"
-                        value={height}
-                        onChange={(e) => handleHeightChange(e.target.value)}
-                        min="1"
-                        max="10000"
-                        className="h-12 text-lg font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-muted-foreground text-center">
-                    {maintainRatio ? 'Aspect ratio will be maintained' : 'Free resize mode'}
-                  </p>
-                </div>
-
-                {/* Presets */}
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Quick presets</Label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {SIZE_PRESETS.slice(0, 6).map((preset) => (
-                      <button
-                        key={preset.label}
-                        onClick={() => applyPreset(preset)}
-                        className="p-2 rounded-lg border text-xs hover:bg-muted transition-colors"
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <Button size="lg" onClick={handleProcess} disabled={!width && !height} className="w-full h-12 text-base bg-purple-500 hover:bg-purple-600">
-                  <Maximize2 className="mr-2 h-5 w-5" />
-                  Resize to {width}×{height}
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
-              </CardContent>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Processing State */}
-      {status === 'processing' && (
-        <Card className="overflow-hidden">
-          <div className="grid grid-cols-1 lg:grid-cols-2">
-            <div className="relative bg-muted aspect-square lg:aspect-auto lg:min-h-[400px]">
-              {originalPreview && (
+              {info?.failed && <InfoNote>The size of this picture could not be read, so it cannot be resized. Please choose another image.</InfoNote>}
+              {sw > 0 && (
                 <>
-                  <img src={originalPreview} alt="Processing" className="absolute inset-0 w-full h-full object-contain p-4 blur-sm opacity-50" />
-                  <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+                  <ChoiceGroup
+                    label="Resize by"
+                    tone="purple"
+                    value={mode}
+                    onChange={setMode}
+                    columns={2}
+                    options={[
+                      { value: 'pixels', label: 'Pixels' },
+                      { value: 'percent', label: 'Percentage' },
+                    ]}
+                  />
+
+                  {mode === 'pixels' ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+                        <Field label="Width (px)" error={plan && 'error' in plan && anchor === 'w' ? planError : null}>
+                          <Input className="h-11" inputMode="numeric" autoComplete="off" value={width} onChange={(e) => setW(digits(e.target.value))} />
+                        </Field>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-touch"
+                          aria-pressed={locked}
+                          aria-label={locked ? 'Aspect ratio locked. Press to unlock' : 'Aspect ratio unlocked. Press to lock'}
+                          onClick={toggleLock}
+                          className={cn('mb-0', locked && 'border-purple-500 bg-purple-50 text-purple-800')}
+                        >
+                          {locked ? <Link2 className="h-5 w-5" /> : <Link2Off className="h-5 w-5" />}
+                        </Button>
+                        <Field label="Height (px)" error={plan && 'error' in plan && anchor === 'h' ? planError : null}>
+                          <Input className="h-11" inputMode="numeric" autoComplete="off" value={height} onChange={(e) => setH(digits(e.target.value))} />
+                        </Field>
+                      </div>
+                      {!locked && (
+                        <ChoiceGroup
+                          label="When the shape changes"
+                          tone="purple"
+                          value={fit}
+                          onChange={setFit}
+                          columns={2}
+                          options={[
+                            { value: 'exact', label: 'Stretch', description: 'Squash to the new size' },
+                            { value: 'cover', label: 'Crop to fill', description: 'Keep the centre' },
+                          ]}
+                        />
+                      )}
+                      <div className="flex flex-wrap gap-2" role="group" aria-label="Width presets">
+                        {WIDTH_PRESETS.map((p) => (
+                          <Button key={p} type="button" variant="outline" size="touch" onClick={() => { setLocked(true); setW(String(p)); }}>
+                            {p} px wide
+                          </Button>
+                        ))}
+                        <Button type="button" variant="ghost" size="touch" onClick={() => { setLocked(true); setW(String(sw)); }}>
+                          Original
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <Field label="Percentage" error={planError} hint="100% keeps the size. 50% halves each side.">
+                        <Input className="h-11 max-w-[8rem]" inputMode="decimal" autoComplete="off" value={percent} onChange={(e) => setPercent(e.target.value.replace(/[^\d.]/g, '').slice(0, 6))} />
+                      </Field>
+                      <div className="flex flex-wrap gap-2" role="group" aria-label="Percentage presets">
+                        {PERCENT_PRESETS.map((p) => (
+                          <Button key={p} type="button" variant="outline" size="touch" onClick={() => setPercent(String(p))}>
+                            {p}%
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="rounded-xl bg-purple-50 px-4 py-3 text-center" aria-live="polite">
+                    <p className="text-xs text-purple-900">New size</p>
+                    <p className="text-lg font-bold text-purple-900">{size ? `${size[0]} × ${size[1]} px` : 'Enter a size'}</p>
+                    <p className="text-xs text-purple-900">Now {sw} × {sh} px</p>
+                  </div>
+
+                  {upscales && !tooLarge && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <div>
+                        <p>This makes the picture larger than the original, so it will look softer. Enlarging cannot add detail.</p>
+                        <label className="mt-1 flex min-h-[44px] cursor-pointer items-center gap-2 font-medium">
+                          <input type="checkbox" checked={noUpscale} onChange={(e) => setNoUpscale(e.target.checked)} className="h-5 w-5 accent-purple-700" />
+                          Do not enlarge
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                  {tooLarge && (
+                    <p role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      That is more than {MAX_PIXELS / 1e6} megapixels, which the server does not accept. Choose a smaller size.
+                    </p>
+                  )}
+                  {unchanged && <InfoNote>This is the size the picture already has. Change the width, height or percentage.</InfoNote>}
+
+                  {/jpeg|webp/.test(file.type) && (
+                    <OptionsPanel collapsible title="More options">
+                      <Field label={`Output quality: ${quality}`} hint="Higher is sharper and gives a larger file.">
+                        <input type="range" min={10} max={100} value={quality} onChange={(e) => setQuality(Number(e.target.value))} aria-valuetext={`Quality ${quality} out of 100`} className="h-11 w-full accent-purple-700" />
+                      </Field>
+                    </OptionsPanel>
+                  )}
                 </>
               )}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center text-white">
-                  <div className="relative inline-flex">
-                    <div className="w-20 h-20 rounded-full border-4 border-white/20" />
-                    <div className="absolute inset-0 w-20 h-20 rounded-full border-4 border-t-white border-r-transparent border-b-transparent border-l-transparent animate-spin" />
-                    <Maximize2 className="absolute inset-0 m-auto h-8 w-8" />
-                  </div>
-                </div>
+
+              <div className="flex justify-center">
+                <PrimaryButton tone="purple" icon={<Maximize2 className="h-5 w-5" />} onClick={resize} disabled={!canRun}>
+                  Resize image
+                </PrimaryButton>
               </div>
             </div>
-            <CardContent className="p-6 flex flex-col justify-center">
-              <h3 className="text-xl font-semibold mb-6">Resizing your image...</h3>
-              <div className="space-y-4">
-                {PROCESSING_STEPS.map((step, index) => (
-                  <div key={step.label} className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all
-                      ${index < processingStep ? 'bg-purple-500 text-white' : index === processingStep ? 'bg-purple-500/20 text-purple-500 animate-pulse' : 'bg-muted text-muted-foreground'}`}>
-                      {index < processingStep ? <Check className="h-4 w-4" /> : index === processingStep ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="text-xs">{index + 1}</span>}
-                    </div>
-                    <span className={`text-sm ${index <= processingStep ? 'text-foreground' : 'text-muted-foreground'}`}>{step.label}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
+          )}
+          <TrustStrip />
+        </ToolPanel>
+      )}
+
+      {run.isBusy && (
+        <ProcessingCard
+          stage={run.status === 'uploading' ? 'uploading' : 'processing'}
+          progress={run.uploadProgress}
+          loaded={run.uploadLoaded}
+          total={run.uploadTotal}
+          fileName={file?.name}
+          fileSize={file?.size}
+          title="Resizing your image"
+          tone="purple"
+          onCancel={run.cancel}
+        />
+      )}
+
+      {run.status === 'done' && run.result && (
+        <ResultCard
+          title="Your image is ready"
+          fileName={run.result.file_name}
+          fileSize={run.result.file_size}
+          downloadUrl={run.result.download_url}
+          downloadLabel="Download image"
+          resetLabel="Resize another image"
+          onReset={startOver}
+          tone="purple"
+          stats={
+            <>
+              <StatTile label="Before" value={dims(meta?.original_width, meta?.original_height) || dims(sw, sh)} />
+              <StatTile label="After" value={dims(meta?.width, meta?.height)} accent />
+              <StatTile label="Original file" value={bytes(meta?.original_size ?? file?.size)} />
+              <StatTile label="New file" value={bytes(meta?.output_size ?? run.result.file_size)} />
+            </>
+          }
+        >
+          <div className="space-y-1 text-center text-sm text-gray-700">
+            {meta?.upscaled && <p>The picture was enlarged, so it may look softer than the original.</p>}
+            {meta?.animation_dropped && <p>Only the first frame was kept: this format cannot hold the animation.</p>}
           </div>
-        </Card>
+        </ResultCard>
       )}
 
-      {/* Completed State */}
-      {status === 'completed' && originalPreview && resultPreview && (
-        <div className="space-y-6">
-          <Card className="overflow-hidden">
-            <CardContent className="p-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-muted-foreground mb-2">Original</p>
-                  <div className="aspect-square rounded-xl overflow-hidden bg-muted">
-                    <img src={originalPreview} alt="Original" className="w-full h-full object-contain" />
-                  </div>
-                  <p className="mt-2 font-mono text-sm">{imageDimensions?.width} × {imageDimensions?.height}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-muted-foreground mb-2">Resized</p>
-                  <div className="aspect-square rounded-xl overflow-hidden bg-muted">
-                    <img src={resultPreview} alt="Resized" className="w-full h-full object-contain" />
-                  </div>
-                  <p className="mt-2 font-mono text-sm text-purple-500">{newDimensions?.width} × {newDimensions?.height}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex flex-col sm:flex-row items-center gap-4">
-                <div className="flex items-center gap-3 flex-1">
-                  <div className="w-14 h-14 rounded-xl overflow-hidden bg-muted flex-shrink-0">
-                    <img src={resultPreview} alt="Result" className="w-full h-full object-cover" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{fileName}</p>
-                    <p className="text-sm text-muted-foreground">{fileSize && formatFileSize(fileSize)}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" onClick={handleReset}>
-                    <RefreshCw className="h-4 w-4 mr-1" />
-                    New
-                  </Button>
-                  <Button onClick={handleDownload} className="bg-purple-500 hover:bg-purple-600">
-                    <Download className="h-4 w-4 mr-1" />
-                    Download
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Error State */}
-      {status === 'error' && (
-        <Card className="border-red-200 dark:border-red-900">
-          <CardContent className="p-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mx-auto">
-              <X className="h-8 w-8 text-red-500" />
-            </div>
-            <h3 className="mt-4 text-lg font-semibold text-red-600">{error}</h3>
-            <div className="mt-6 flex justify-center gap-3">
-              <Button variant="outline" onClick={handleReset}>Try Again</Button>
-              <Button onClick={handleProcess} className="bg-red-500 hover:bg-red-600">
-                <RefreshCw className="h-4 w-4 mr-1" />
-                Retry
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {run.status === 'error' && (
+        <ErrorCard
+          message={run.error || 'Something went wrong.'}
+          fileName={file?.name}
+          fileSize={file?.size}
+          onRetry={resize}
+          onEdit={run.backToEdit}
+          editLabel="Change size or image"
+          onReset={startOver}
+        />
       )}
     </ToolLayout>
   );

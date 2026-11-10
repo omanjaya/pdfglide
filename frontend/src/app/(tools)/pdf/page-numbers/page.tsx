@@ -1,530 +1,172 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
-import {
-  Hash,
-  Upload,
-  FileText,
-  X,
-  Download,
-  RefreshCw,
-  CheckCircle2,
-  AlertCircle,
-  Copy,
-  Check,
-  Type,
-  AlignLeft,
-  AlignCenter,
-  AlignRight
-} from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { useState } from 'react';
+import { Hash, FileText, ListOrdered, Type, LayoutGrid } from 'lucide-react';
+import { ToolLayout, ToolPanel } from '@/components/shared/ToolLayout';
+import { FileUploader } from '@/components/shared/FileUploader';
+import { FeatureGrid, InfoNote, TrustStrip } from '@/components/shared/TrustStrip';
+import { OptionsPanel, Field, ChoiceGroup } from '@/components/shared/OptionsPanel';
+import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { ProcessingCard } from '@/components/shared/ProcessingCard';
+import { ResultCard } from '@/components/shared/ResultCard';
+import { ErrorCard } from '@/components/shared/ErrorCard';
+import { useToolRun } from '@/hooks/useToolRun';
 import { addPageNumbers, TaskResponse } from '@/lib/api';
 
-type Status = 'idle' | 'preview' | 'processing' | 'completed' | 'error';
-
-const PROCESSING_STEPS = [
-  'Reading PDF pages...',
-  'Calculating page count...',
-  'Adding page numbers...',
-  'Formatting text...',
-  'Generating PDF...',
-];
-
 const POSITION_OPTIONS = [
-  { value: 'bottom-left', label: 'Bottom Left', row: 'bottom', col: 'left' },
-  { value: 'bottom-center', label: 'Bottom Center', row: 'bottom', col: 'center' },
-  { value: 'bottom-right', label: 'Bottom Right', row: 'bottom', col: 'right' },
-  { value: 'top-left', label: 'Top Left', row: 'top', col: 'left' },
-  { value: 'top-center', label: 'Top Center', row: 'top', col: 'center' },
-  { value: 'top-right', label: 'Top Right', row: 'top', col: 'right' },
+  { value: 'top-left', label: 'Top left' },
+  { value: 'top-center', label: 'Top center' },
+  { value: 'top-right', label: 'Top right' },
+  { value: 'bottom-left', label: 'Bottom left' },
+  { value: 'bottom-center', label: 'Bottom center' },
+  { value: 'bottom-right', label: 'Bottom right' },
 ];
 
 const FORMAT_OPTIONS = [
-  { value: '{n}', label: '1, 2, 3...', preview: '1' },
-  { value: 'Page {n}', label: 'Page 1, Page 2...', preview: 'Page 1' },
-  { value: '{n} of {total}', label: '1 of 10...', preview: '1 of 10' },
-  { value: 'Page {n} of {total}', label: 'Page 1 of 10...', preview: 'Page 1 of 10' },
+  { value: '{n}', label: '1', description: '1, 2, 3...', preview: '1' },
+  { value: 'Page {n}', label: 'Page 1', description: 'Page 1, Page 2...', preview: 'Page 1' },
+  { value: '{n} of {total}', label: '1 of 10', description: 'Number of total', preview: '1 of 10' },
+  { value: 'Page {n} of {total}', label: 'Page 1 of 10', description: 'Page number of total', preview: 'Page 1 of 10' },
 ];
 
-const FONT_SIZES = [8, 10, 12, 14, 16, 18, 20, 24];
-
-const formatFileSize = (bytes: number): string => {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
+const FONT_SIZES = [8, 10, 12, 14, 16, 18, 20, 24].map((s) => ({ value: s, label: String(s) }));
 
 export default function PageNumbersPage() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [position, setPosition] = useState('bottom-center');
   const [startNumber, setStartNumber] = useState(1);
   const [formatTemplate, setFormatTemplate] = useState('{n}');
   const [fontSize, setFontSize] = useState(12);
-  const [status, setStatus] = useState<Status>('idle');
-  const [result, setResult] = useState<TaskResponse['data'] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [processingStep, setProcessingStep] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const run = useToolRun<TaskResponse['data']>();
+  const file = files[0];
+  const previewText = FORMAT_OPTIONS.find((f) => f.value === formatTemplate)?.preview.replace(/^\d+/, String(startNumber)).replace(/^Page \d+/, `Page ${startNumber}`);
 
-  const handleFileSelect = useCallback((selectedFile: File) => {
-    if (selectedFile.type === 'application/pdf') {
-      setFile(selectedFile);
-      setStatus('preview');
-      setError(null);
-    }
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile) {
-      handleFileSelect(droppedFile);
-    }
-  }, [handleFileSelect]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  const handleProcess = async () => {
-    if (!file) return;
-
-    setStatus('processing');
-    setError(null);
-    setProcessingStep(0);
-
-    const stepInterval = setInterval(() => {
-      setProcessingStep((prev) =>
-        prev < PROCESSING_STEPS.length - 1 ? prev + 1 : prev
-      );
-    }, 700);
-
-    try {
-      const response = await addPageNumbers(file, {
-        position,
-        startNumber,
-        formatTemplate,
-        fontSize,
-      });
-      clearInterval(stepInterval);
-
-      if (response.success) {
-        setResult(response.data);
-        setStatus('completed');
-      } else {
-        setError(response.error || 'Processing failed');
-        setStatus('error');
-      }
-    } catch (err: any) {
-      clearInterval(stepInterval);
-      setError(err.response?.data?.detail || err.message || 'An error occurred');
-      setStatus('error');
-    }
+  const addNumbers = () => {
+    if (file) run.run((req) => addPageNumbers(file, { position, startNumber, formatTemplate, fontSize }, req));
   };
-
-  const handleReset = () => {
-    setFile(null);
+  const startOver = () => {
+    run.reset();
+    setFiles([]);
     setPosition('bottom-center');
     setStartNumber(1);
     setFormatTemplate('{n}');
     setFontSize(12);
-    setStatus('idle');
-    setResult(null);
-    setError(null);
-    setProcessingStep(0);
-    setCopied(false);
-  };
-
-  const handleCopyLink = async () => {
-    if (result?.download_url) {
-      await navigator.clipboard.writeText(window.location.origin + result.download_url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const getPreviewText = () => {
-    const format = FORMAT_OPTIONS.find(f => f.value === formatTemplate);
-    if (!format) return String(startNumber);
-    return format.preview.replace('1', String(startNumber));
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-violet-50">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white py-12">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-center gap-4 mb-4">
-            <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-sm">
-              <Hash className="h-10 w-10" />
-            </div>
-          </div>
-          <h1 className="text-4xl font-bold text-center mb-2">Add Page Numbers</h1>
-          <p className="text-center text-indigo-100 max-w-2xl mx-auto">
-            Add customizable page numbers to your PDF document
-          </p>
-        </div>
-      </div>
+    <ToolLayout
+      title="Add Page Numbers"
+      description="Add page numbers to your PDF document"
+      icon={Hash}
+      tone="indigo"
+      width="lg"
+      status={run.announcement}
+    >
+      {run.status === 'idle' && (
+        <ToolPanel aria-label="Add page numbers to PDF">
+          <FileUploader accept={{ 'application/pdf': ['.pdf'] }} multiple={false} files={files} onFilesChange={setFiles} tone="indigo" typeLabel="PDF" />
 
-      <div className="container mx-auto px-4 py-8 -mt-6">
-        {/* Idle State - Upload */}
-        {status === 'idle' && (
-          <Card className="max-w-2xl mx-auto shadow-xl border-0">
-            <CardContent className="p-8">
-              <div
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onClick={() => fileInputRef.current?.click()}
-                className={`relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 ${
-                  isDragging
-                    ? 'border-indigo-500 bg-indigo-50 scale-[1.02]'
-                    : 'border-gray-200 hover:border-indigo-400 hover:bg-indigo-50/50'
-                }`}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf"
-                  onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-                  className="hidden"
-                />
-                <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center mb-6 transition-all duration-300 ${
-                  isDragging ? 'bg-indigo-500 scale-110' : 'bg-gradient-to-br from-indigo-500 to-violet-600'
-                }`}>
-                  <Hash className="h-10 w-10 text-white" />
-                </div>
-                <h3 className="text-xl font-semibold text-gray-800 mb-2">
-                  {isDragging ? 'Drop your PDF here' : 'Upload PDF'}
-                </h3>
-                <p className="text-gray-500 mb-4">Drag & drop or click to select</p>
-                <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
-                  <Upload className="h-4 w-4" />
-                  <span>PDF files only • Max 100MB</span>
-                </div>
-              </div>
+          {!file && (
+            <FeatureGrid
+              tone="indigo"
+              items={[
+                { icon: LayoutGrid, label: '6 positions', desc: 'Top or bottom' },
+                { icon: ListOrdered, label: 'Start number', desc: 'Begin at any number' },
+                { icon: Type, label: '4 formats', desc: 'Like Page 1 of 10' },
+              ]}
+            />
+          )}
 
-              {/* Feature Cards */}
-              <div className="grid grid-cols-2 gap-4 mt-8">
-                <div className="flex items-start gap-3 p-4 rounded-xl bg-indigo-50">
-                  <Type className="h-5 w-5 text-indigo-600 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-gray-800 text-sm">Custom Format</p>
-                    <p className="text-xs text-gray-500">Page 1, 1/10, etc.</p>
+          {file && (
+            <div className="mt-6 grid gap-6 md:grid-cols-[200px_1fr]">
+              <div className="mx-auto" aria-hidden="true">
+                <div className="relative h-64 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <div className="absolute inset-4 flex items-center justify-center">
+                    <FileText className="h-16 w-16 text-gray-300" />
                   </div>
-                </div>
-                <div className="flex items-start gap-3 p-4 rounded-xl bg-violet-50">
-                  <AlignCenter className="h-5 w-5 text-violet-600 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-gray-800 text-sm">Flexible Position</p>
-                    <p className="text-xs text-gray-500">6 positions available</p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Preview State */}
-        {status === 'preview' && file && (
-          <div className="max-w-5xl mx-auto">
-            <Card className="shadow-xl border-0">
-              <CardContent className="p-8">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Visual Preview */}
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Preview</h3>
-                    <div className="bg-gradient-to-br from-gray-100 to-gray-50 rounded-xl p-6 relative">
-                      <button
-                        onClick={handleReset}
-                        className="absolute top-2 right-2 p-1 hover:bg-gray-200 rounded-full transition-colors z-10"
-                      >
-                        <X className="h-4 w-4 text-gray-500" />
-                      </button>
-
-                      {/* Page Preview */}
-                      <div className="w-48 h-64 bg-white rounded-lg shadow-lg mx-auto relative border border-gray-200">
-                        <div className="absolute inset-4 flex items-center justify-center">
-                          <FileText className="h-16 w-16 text-gray-200" />
-                        </div>
-
-                        {/* Page number preview */}
-                        <div
-                          className={`absolute px-2 py-1 text-indigo-600 font-medium ${
-                            position.includes('top') ? 'top-2' : 'bottom-2'
-                          } ${
-                            position.includes('left') ? 'left-2' :
-                            position.includes('right') ? 'right-2' : 'left-1/2 -translate-x-1/2'
-                          }`}
-                          style={{ fontSize: `${Math.max(fontSize * 0.75, 8)}px` }}
-                        >
-                          {getPreviewText()}
-                        </div>
-                      </div>
-
-                      {/* File info */}
-                      <div className="mt-6 text-center">
-                        <p className="font-medium text-gray-800 truncate">{file.name}</p>
-                        <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Options */}
-                  <div className="space-y-6">
-                    <h3 className="text-lg font-semibold text-gray-800">Options</h3>
-
-                    {/* Position Grid */}
-                    <div>
-                      <label className="text-sm font-medium text-gray-700 mb-3 block">Position</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {POSITION_OPTIONS.filter(p => p.row === 'top').map((pos) => (
-                          <button
-                            key={pos.value}
-                            onClick={() => setPosition(pos.value)}
-                            className={`p-3 rounded-lg border-2 transition-all ${
-                              position === pos.value
-                                ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                                : 'border-gray-200 hover:border-indigo-300 text-gray-600'
-                            }`}
-                          >
-                            {pos.col === 'left' && <AlignLeft className="h-4 w-4 mx-auto" />}
-                            {pos.col === 'center' && <AlignCenter className="h-4 w-4 mx-auto" />}
-                            {pos.col === 'right' && <AlignRight className="h-4 w-4 mx-auto" />}
-                            <span className="text-xs mt-1 block">Top</span>
-                          </button>
-                        ))}
-                        {POSITION_OPTIONS.filter(p => p.row === 'bottom').map((pos) => (
-                          <button
-                            key={pos.value}
-                            onClick={() => setPosition(pos.value)}
-                            className={`p-3 rounded-lg border-2 transition-all ${
-                              position === pos.value
-                                ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                                : 'border-gray-200 hover:border-indigo-300 text-gray-600'
-                            }`}
-                          >
-                            {pos.col === 'left' && <AlignLeft className="h-4 w-4 mx-auto" />}
-                            {pos.col === 'center' && <AlignCenter className="h-4 w-4 mx-auto" />}
-                            {pos.col === 'right' && <AlignRight className="h-4 w-4 mx-auto" />}
-                            <span className="text-xs mt-1 block">Bottom</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Format */}
-                    <div>
-                      <label className="text-sm font-medium text-gray-700 mb-3 block">Format</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {FORMAT_OPTIONS.map((format) => (
-                          <button
-                            key={format.value}
-                            onClick={() => setFormatTemplate(format.value)}
-                            className={`p-3 rounded-lg border-2 text-left transition-all ${
-                              formatTemplate === format.value
-                                ? 'border-indigo-500 bg-indigo-50'
-                                : 'border-gray-200 hover:border-indigo-300'
-                            }`}
-                          >
-                            <span className={`text-sm font-medium ${
-                              formatTemplate === format.value ? 'text-indigo-700' : 'text-gray-700'
-                            }`}>
-                              {format.preview}
-                            </span>
-                            <span className="text-xs text-gray-500 block mt-0.5">{format.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Start Number & Font Size */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-sm font-medium text-gray-700 mb-2 block">Start Number</label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={startNumber}
-                          onChange={(e) => setStartNumber(Math.max(1, parseInt(e.target.value) || 1))}
-                          className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium text-gray-700 mb-2 block">Font Size</label>
-                        <div className="flex flex-wrap gap-1">
-                          {FONT_SIZES.map((size) => (
-                            <button
-                              key={size}
-                              onClick={() => setFontSize(size)}
-                              className={`px-2 py-1 rounded text-sm transition-colors ${
-                                fontSize === size
-                                  ? 'bg-indigo-500 text-white'
-                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                              }`}
-                            >
-                              {size}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action Button */}
-                <div className="mt-8 flex justify-center">
-                  <button
-                    onClick={handleProcess}
-                    className="px-8 py-4 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-semibold hover:from-indigo-700 hover:to-violet-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 flex items-center gap-3"
-                  >
-                    <Hash className="h-5 w-5" />
-                    Add Page Numbers
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* Processing State */}
-        {status === 'processing' && (
-          <Card className="max-w-xl mx-auto shadow-xl border-0">
-            <CardContent className="p-12 text-center">
-              <div className="relative w-24 h-24 mx-auto mb-8">
-                <div className="absolute inset-0 rounded-full border-4 border-indigo-100"></div>
-                <div className="absolute inset-0 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin"></div>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Hash className="h-10 w-10 text-indigo-500" />
-                </div>
-              </div>
-              <h3 className="text-xl font-semibold text-gray-800 mb-6">Adding Page Numbers...</h3>
-
-              {/* Processing Steps */}
-              <div className="space-y-3 text-left max-w-xs mx-auto">
-                {PROCESSING_STEPS.map((step, index) => (
                   <div
-                    key={index}
-                    className={`flex items-center gap-3 transition-all duration-300 ${
-                      index <= processingStep ? 'opacity-100' : 'opacity-30'
+                    className={`absolute px-2 py-1 font-medium text-indigo-700 ${position.includes('top') ? 'top-2' : 'bottom-2'} ${
+                      position.includes('left') ? 'left-2' : position.includes('right') ? 'right-2' : 'left-1/2 -translate-x-1/2'
                     }`}
+                    style={{ fontSize: `${Math.max(fontSize * 0.75, 8)}px` }}
                   >
-                    {index < processingStep ? (
-                      <CheckCircle2 className="h-5 w-5 text-indigo-500 flex-shrink-0" />
-                    ) : index === processingStep ? (
-                      <div className="h-5 w-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin flex-shrink-0" />
-                    ) : (
-                      <div className="h-5 w-5 rounded-full border-2 border-gray-200 flex-shrink-0" />
-                    )}
-                    <span className={`text-sm ${
-                      index <= processingStep ? 'text-gray-700' : 'text-gray-400'
-                    }`}>
-                      {step}
-                    </span>
+                    {previewText}
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Completed State */}
-        {status === 'completed' && result && (
-          <Card className="max-w-xl mx-auto shadow-xl border-0 overflow-hidden">
-            <div className="bg-gradient-to-r from-indigo-500 to-violet-500 p-6 text-white text-center">
-              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckCircle2 className="h-10 w-10" />
-              </div>
-              <h3 className="text-2xl font-bold">Page Numbers Added!</h3>
-              <p className="text-indigo-100 mt-1">Your PDF is ready to download</p>
-            </div>
-            <CardContent className="p-6">
-              <div className="bg-gray-50 rounded-xl p-4 mb-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
-                    <FileText className="h-6 w-6 text-indigo-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-800 truncate">{result.file_name}</p>
-                    <p className="text-sm text-gray-500">{formatFileSize(result.file_size || 0)}</p>
-                  </div>
-                  <Hash className="h-6 w-6 text-indigo-500" />
                 </div>
+                <p className="mt-2 text-center text-xs text-gray-600">Preview</p>
               </div>
 
-              <div className="flex gap-3">
-                <a
-                  href={result.download_url}
-                  download
-                  className="flex-1 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-semibold hover:from-indigo-700 hover:to-violet-700 transition-all flex items-center justify-center gap-2"
-                >
-                  <Download className="h-5 w-5" />
-                  Download
-                </a>
-                <button
-                  onClick={handleCopyLink}
-                  className="px-4 py-3 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors flex items-center gap-2"
-                >
-                  {copied ? (
-                    <Check className="h-5 w-5 text-indigo-500" />
-                  ) : (
-                    <Copy className="h-5 w-5 text-gray-500" />
-                  )}
-                </button>
-              </div>
-
-              <button
-                onClick={handleReset}
-                className="w-full mt-4 py-3 text-gray-600 hover:text-gray-800 hover:bg-gray-50 rounded-xl transition-colors flex items-center justify-center gap-2"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Process Another PDF
-              </button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Error State */}
-        {status === 'error' && (
-          <Card className="max-w-xl mx-auto shadow-xl border-0 overflow-hidden">
-            <div className="bg-gradient-to-r from-red-500 to-rose-500 p-6 text-white text-center">
-              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <AlertCircle className="h-10 w-10" />
-              </div>
-              <h3 className="text-2xl font-bold">Processing Failed</h3>
-              <p className="text-red-100 mt-1">{error}</p>
+              <OptionsPanel title="Page number options" icon={Hash}>
+                <ChoiceGroup label="Position" tone="indigo" value={position} onChange={setPosition} columns={3} options={POSITION_OPTIONS} />
+                <ChoiceGroup label="Format" tone="indigo" value={formatTemplate} onChange={setFormatTemplate} columns={2} options={FORMAT_OPTIONS.map(({ value, label, description }) => ({ value, label, description }))} />
+                <Field label="Start number">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    value={startNumber}
+                    onChange={(e) => setStartNumber(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="min-h-[44px] w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-600/30"
+                  />
+                </Field>
+                <ChoiceGroup label="Font size" tone="indigo" value={fontSize} onChange={setFontSize} columns={4} options={FONT_SIZES} />
+              </OptionsPanel>
             </div>
-            <CardContent className="p-6">
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setStatus('preview')}
-                  className="flex-1 py-3 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-xl font-semibold hover:from-red-700 hover:to-rose-700 transition-all flex items-center justify-center gap-2"
-                >
-                  <RefreshCw className="h-5 w-5" />
-                  Try Again
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="px-6 py-3 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
-                >
-                  Reset
-                </button>
+          )}
+
+          {file && (
+            <div className="mt-5 space-y-5">
+              <InfoNote>Numbers are added to every page. {'{total}'} formats use the real page count of your PDF.</InfoNote>
+              <div className="flex justify-center">
+                <PrimaryButton tone="indigo" icon={<Hash className="h-5 w-5" />} onClick={addNumbers}>
+                  Add page numbers
+                </PrimaryButton>
               </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </div>
+            </div>
+          )}
+          <TrustStrip />
+        </ToolPanel>
+      )}
+
+      {run.isBusy && (
+        <ProcessingCard
+          stage={run.status === 'uploading' ? 'uploading' : 'processing'}
+          progress={run.uploadProgress}
+          loaded={run.uploadLoaded}
+          total={run.uploadTotal}
+          fileName={file?.name}
+          fileSize={file?.size}
+          title="Numbering your pages"
+          tone="indigo"
+          onCancel={run.cancel}
+        />
+      )}
+
+      {run.status === 'done' && run.result && (
+        <ResultCard
+          title="Your numbered PDF is ready"
+          fileName={run.result.file_name}
+          fileSize={run.result.file_size}
+          downloadUrl={run.result.download_url}
+          downloadLabel="Download PDF"
+          resetLabel="Number another PDF"
+          onReset={startOver}
+          copyLink
+          tone="indigo"
+        />
+      )}
+
+      {run.status === 'error' && (
+        <ErrorCard
+          message={run.error || 'Something went wrong.'}
+          fileName={file?.name}
+          fileSize={file?.size}
+          onRetry={addNumbers}
+          onEdit={run.backToEdit}
+          editLabel="Change options"
+          onReset={startOver}
+        />
+      )}
+    </ToolLayout>
   );
 }

@@ -1,162 +1,194 @@
 'use client';
 
 import { useState } from 'react';
-import { QrCode, Download } from 'lucide-react';
-import { ToolLayout } from '@/components/shared/ToolLayout';
-import { Button } from '@/components/ui/Button';
-import { api, getDownloadUrl } from '@/lib/api';
+import { QrCode, Link2, Zap, Maximize2 } from 'lucide-react';
+import { ToolLayout, ToolPanel } from '@/components/shared/ToolLayout';
+import { FeatureGrid, InfoNote } from '@/components/shared/TrustStrip';
+import { ChoiceGroup, Field } from '@/components/shared/OptionsPanel';
+import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { ProcessingCard } from '@/components/shared/ProcessingCard';
+import { ResultCard } from '@/components/shared/ResultCard';
+import { ErrorCard } from '@/components/shared/ErrorCard';
+import { useToolRun } from '@/hooks/useToolRun';
+import { api, getDownloadUrl, TaskResponse } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-type Status = 'idle' | 'generating' | 'completed' | 'error';
-
-const sizeOptions = [
-  { value: 200, label: 'Small', description: '200x200px' },
-  { value: 400, label: 'Medium', description: '400x400px' },
-  { value: 800, label: 'Large', description: '800x800px' },
+const SIZES = [
+  { value: 200, label: 'Small', description: '200 × 200 px' },
+  { value: 400, label: 'Medium', description: '400 × 400 px' },
+  { value: 800, label: 'Large', description: '800 × 800 px' },
 ];
+
+// QR codes hold at most ~2.9 KB; stay safely below so the server never has to refuse.
+const MAX_BYTES = 2000;
+const WARN_BYTES = 600;
+
+function byteLength(s: string) {
+  return new TextEncoder().encode(s).length;
+}
+
+function validate(content: string): { error?: string; warning?: string } {
+  if (!content.trim()) return { error: 'Enter some text or a link to turn into a QR code.' };
+  const bytes = byteLength(content);
+  if (bytes > MAX_BYTES) {
+    return { error: `This is too long for a QR code (${bytes.toLocaleString()} of ${MAX_BYTES.toLocaleString()} characters allowed). Shorten it or use a short link.` };
+  }
+  const t = content.trim();
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(t) && /^(www\.|[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(\/|$))/i.test(t) && !/\s/.test(t)) {
+    return { warning: 'This looks like a web address. Start it with https:// so phones open it as a link.' };
+  }
+  if (bytes > WARN_BYTES) {
+    return { warning: 'Long content makes a dense QR code that is harder to scan. A short link scans best.' };
+  }
+  return {};
+}
 
 export default function QRCodePage() {
   const [content, setContent] = useState('');
+  const [touched, setTouched] = useState(false);
   const [size, setSize] = useState(400);
-  const [status, setStatus] = useState<Status>('idle');
-  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const run = useToolRun<TaskResponse['data']>();
 
-  const handleGenerate = async () => {
-    if (!content.trim()) return;
+  const v = validate(content);
+  const showError = touched && content.length > 0 ? v.error : undefined;
+  const bytes = byteLength(content);
 
-    setStatus('generating');
-    setError(null);
-
-    try {
+  const generate = () => {
+    if (validate(content).error) {
+      setTouched(true);
+      return;
+    }
+    run.run(async (req) => {
       const formData = new FormData();
       formData.append('content', content);
-      formData.append('size', size.toString());
-
-      const response = await api.post('/qr/generate', formData);
-
-      if (response.data.success) {
-        const url = getDownloadUrl(response.data.data.download_url);
-        setQrImageUrl(url);
-        setDownloadUrl(response.data.data.download_url);
-        setStatus('completed');
-      } else {
-        setError(response.data.error || 'Generation failed');
-        setStatus('error');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'An error occurred');
-      setStatus('error');
-    }
+      formData.append('size', String(size));
+      const response = await api.post('/qr/generate', formData, req);
+      return response.data;
+    });
   };
-
-  const handleReset = () => {
+  const startOver = () => {
+    run.reset();
     setContent('');
+    setTouched(false);
     setSize(400);
-    setStatus('idle');
-    setQrImageUrl(null);
-    setDownloadUrl(null);
-    setError(null);
   };
 
   return (
     <ToolLayout
       title="QR Code Generator"
-      description="Create QR codes from text, URLs, or any content"
+      description="Turn a link or any text into a QR code you can download as a PNG."
       icon={QrCode}
-      color="bg-purple-500"
+      tone="purple"
+      status={run.announcement}
     >
-      <div className="space-y-6">
-        {status !== 'completed' && (
-          <>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Content</label>
+      {run.status === 'idle' && (
+        <ToolPanel aria-label="Create a QR code">
+          <form
+            noValidate
+            className="space-y-6"
+            onSubmit={(e) => {
+              e.preventDefault();
+              generate();
+            }}
+          >
+            <Field
+              label="Link or text"
+              hint={
+                <span className="flex flex-wrap justify-between gap-x-3">
+                  <span>{v.warning && !showError ? v.warning : 'A web address, a Wi-Fi code, contact details, any text.'}</span>
+                  <span className={cn(bytes > MAX_BYTES && 'font-semibold text-red-700')}>
+                    {bytes.toLocaleString()} / {MAX_BYTES.toLocaleString()}
+                  </span>
+                </span>
+              }
+              error={showError}
+            >
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="Enter text, URL, or any content..."
+                onBlur={() => setTouched(true)}
+                placeholder="https://example.com"
                 rows={4}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                className={cn(
+                  'min-h-[7rem] w-full rounded-lg border bg-white px-4 py-3 text-base text-gray-900 placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1',
+                  showError ? 'border-red-500 focus-visible:ring-red-600' : 'border-gray-300 focus-visible:ring-purple-600'
+                )}
               />
-            </div>
+            </Field>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Size</label>
-              <div className="grid grid-cols-3 gap-2">
-                {sizeOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => setSize(option.value)}
-                    className={cn(
-                      'rounded-lg border p-3 text-center transition-colors',
-                      size === option.value
-                        ? 'border-primary bg-primary/5'
-                        : 'hover:bg-muted'
-                    )}
-                  >
-                    <div className="font-medium">{option.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {option.description}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
+            <ChoiceGroup label="Image size" tone="purple" value={size} onChange={setSize} options={SIZES} />
 
             <div className="flex justify-center">
-              <Button
-                size="lg"
-                onClick={handleGenerate}
-                disabled={!content.trim() || status === 'generating'}
+              <PrimaryButton
+                type="submit"
+                tone="purple"
+                icon={<QrCode className="h-5 w-5" />}
+                disabled={!content.trim() || !!v.error}
               >
-                {status === 'generating' ? (
-                  <>
-                    <div className="mr-2 h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <QrCode className="mr-2 h-5 w-5" />
-                    Generate QR Code
-                  </>
-                )}
-              </Button>
+                Create QR code
+              </PrimaryButton>
             </div>
-          </>
-        )}
+          </form>
 
-        {status === 'completed' && qrImageUrl && (
-          <div className="space-y-6 text-center">
-            <div className="inline-block rounded-lg border bg-white p-4">
+          {!content.trim() && (
+            <FeatureGrid
+              tone="purple"
+              items={[
+                { icon: Link2, label: 'Links and text', desc: 'URLs, notes, contacts' },
+                { icon: Maximize2, label: '3 sizes', desc: 'Up to 800 px' },
+                { icon: Zap, label: 'Instant', desc: 'PNG, ready to print' },
+              ]}
+            />
+          )}
+          <InfoNote className="mt-6">
+            The text you enter is sent to our server to draw the code. Do not encode secrets you would not
+            want a QR code to reveal: anyone who scans it can read what is inside.
+          </InfoNote>
+        </ToolPanel>
+      )}
+
+      {run.isBusy && (
+        <ProcessingCard stage="processing" title="Creating your QR code" tone="purple" onCancel={run.cancel} />
+      )}
+
+      {run.status === 'done' && run.result?.download_url && (
+        <ResultCard
+          title="Your QR code is ready"
+          fileName={run.result.file_name}
+          fileSize={run.result.file_size}
+          downloadUrl={run.result.download_url}
+          downloadLabel="Download PNG"
+          resetLabel="Create another"
+          onReset={startOver}
+          tone="purple"
+        >
+          <div className="flex justify-center">
+            <div className="rounded-xl border bg-white p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={qrImageUrl}
-                alt="Generated QR Code"
-                className="mx-auto"
-                style={{ width: size / 2, height: size / 2 }}
+                src={getDownloadUrl(run.result.download_url)}
+                alt={`QR code for: ${content.length > 80 ? content.slice(0, 80) + '...' : content}`}
+                width={size}
+                height={size}
+                className="h-auto w-full max-w-[260px]"
               />
             </div>
-
-            <div className="flex justify-center gap-2">
-              {downloadUrl && (
-                <Button asChild>
-                  <a href={getDownloadUrl(downloadUrl)} download="qrcode.png">
-                    <Download className="mr-2 h-4 w-4" />
-                    Download PNG
-                  </a>
-                </Button>
-              )}
-              <Button variant="outline" onClick={handleReset}>
-                Generate another
-              </Button>
-            </div>
           </div>
-        )}
-      </div>
+        </ResultCard>
+      )}
+
+      {run.status === 'error' && (
+        <ErrorCard
+          message={run.error || 'Something went wrong.'}
+          onRetry={generate}
+          onEdit={run.backToEdit}
+          editLabel="Edit the text"
+          onReset={startOver}
+        />
+      )}
     </ToolLayout>
   );
 }

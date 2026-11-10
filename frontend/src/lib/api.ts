@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -8,6 +8,197 @@ export const api = axios.create({
     'Content-Type': 'multipart/form-data',
   },
 });
+
+/**
+ * Optional per-request config accepted by every upload helper below
+ * (e.g. `{ signal, onUploadProgress }`), so pages can offer Cancel and a real
+ * upload progress bar. See `useToolRun`.
+ */
+export type RequestConfig = AxiosRequestConfig;
+
+// ============== ERROR HANDLING ==============
+// The backend answers errors with `{"success": false, "data": null, "error": "<message>"}`
+// (4xx), FastAPI validation errors with `{"detail": [...]}`, and proxies may answer with
+// HTML or nothing at all. `getErrorMessage` turns any of those into one human sentence.
+// The response interceptor below also writes that sentence into `err.message` and
+// `err.response.data.detail`, so legacy pages that read either keep working.
+
+const GENERIC_STATUS_TEXT = /^request failed with status code \d+$/i;
+
+const MIME_NAMES: Record<string, string> = {
+  'application/pdf': 'PDF',
+  'application/msword': 'Word (DOC)',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word (DOCX)',
+  'application/vnd.ms-excel': 'Excel (XLS)',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel (XLSX)',
+  'application/vnd.ms-powerpoint': 'PowerPoint (PPT)',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PowerPoint (PPTX)',
+  'image/jpeg': 'JPG',
+  'image/png': 'PNG',
+  'image/webp': 'WebP',
+  'image/gif': 'GIF',
+};
+
+/** Rewrites the most common technical server messages into plain language; anything else passes through. */
+function humanize(text: string): string {
+  const mismatch = text.match(/^File content does not match its type '([^']+)'/i);
+  if (mismatch) {
+    const kind = MIME_NAMES[mismatch[1]] || mismatch[1];
+    return `This file is not a real ${kind} file (its contents do not match its name or type). Please check that it is not corrupted or renamed from another format.`;
+  }
+  const notAllowed = text.match(/^File type '([^']+)' not allowed\. Expected: \[(.*)\]/i);
+  if (notAllowed) {
+    const expected = notAllowed[2]
+      .split(',')
+      .map((m) => m.trim().replace(/^'|'$/g, ''))
+      .map((m) => MIME_NAMES[m] || m);
+    const found = MIME_NAMES[notAllowed[1]] || notAllowed[1];
+    return `This tool does not accept ${found} files. Please choose ${expected.join(' or ')}.`;
+  }
+  return text;
+}
+
+/** The site is free: never relay upgrade / pricing prompts from the server. */
+function stripUpsell(text: string): string {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !/upgrade|pricing|\bpro\b|business plan|subscri/i.test(sentence))
+    .join(' ');
+}
+
+function cleanMessage(text: string): string {
+  return humanize(stripUpsell(text))
+    // Never show server file-system paths (e.g. "/app/storage/uploads/abc_fake.pdf: ...").
+    .replace(/(?<![\w:/.])\/(?:app|tmp|var|home|srv|data|usr)\/[^\s:'"]+/g, 'the uploaded file')
+    .replace(/^value error,\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Pull a readable message out of whatever shape the server sent. */
+function messageFromBody(data: unknown): string | null {
+  if (!data) return null;
+  if (typeof data === 'string') {
+    const t = data.trim();
+    // HTML error pages from a proxy are not for humans.
+    if (!t || t.startsWith('<') || t.length > 300) return null;
+    return cleanMessage(t);
+  }
+  if (typeof data !== 'object') return null;
+  const body = data as Record<string, unknown>;
+
+  const fromField = (v: unknown): string | null => {
+    if (typeof v === 'string' && v.trim()) return cleanMessage(v);
+    if (Array.isArray(v)) {
+      // FastAPI validation: [{loc: ['body','pages'], msg: '...'}]
+      const parts = v
+        .map((item) => {
+          if (typeof item === 'string') return cleanMessage(item);
+          if (item && typeof item === 'object') {
+            const it = item as { loc?: unknown[]; msg?: unknown };
+            const msg = typeof it.msg === 'string' ? cleanMessage(it.msg) : '';
+            const field = Array.isArray(it.loc)
+              ? String(it.loc[it.loc.length - 1] ?? '')
+              : '';
+            if (!msg) return '';
+            return field && field !== 'body' && !/^\d+$/.test(field)
+              ? `${field.replace(/_/g, ' ')}: ${msg}`
+              : msg;
+          }
+          return '';
+        })
+        .filter(Boolean);
+      return parts.length ? parts.join('; ') : null;
+    }
+    if (v && typeof v === 'object') {
+      // e.g. tier limits: {error, message, upgrade_url}
+      const o = v as Record<string, unknown>;
+      return fromField(o.message) || fromField(o.error);
+    }
+    return null;
+  }
+
+  // Backend validation handler: {"error": "Validation error", "details": [{field, message}]}
+  if (Array.isArray(body.details) && body.details.length) {
+    const parts = body.details
+      .map((d) => {
+        const it = d as { field?: unknown; message?: unknown };
+        const msg = typeof it?.message === 'string' ? cleanMessage(it.message) : '';
+        const field = typeof it?.field === 'string' ? it.field.split(/\s*->\s*|\./).pop() || '' : '';
+        if (!msg) return '';
+        return field && field !== 'body' && !/^\d+$/.test(field) ? `${field.replace(/_/g, ' ')}: ${msg}` : msg;
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join('; ');
+  }
+
+  return fromField(body.error) || fromField(body.detail) || fromField(body.message);
+}
+
+/** True when the request was cancelled on purpose (AbortController / axios cancel). */
+export function isRequestCancelled(err: unknown): boolean {
+  return axios.isCancel(err) || (err as { code?: string } | null)?.code === 'ERR_CANCELED';
+}
+
+/** One clear, human message for any error thrown by an API call. Never throws. */
+export function getErrorMessage(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  if (isRequestCancelled(err)) return 'The request was cancelled.';
+
+  if (axios.isAxiosError(err)) {
+    const status = err.response?.status;
+
+    if (!err.response) {
+      if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT' || /timeout/i.test(err.message)) {
+        return 'The server took too long to respond. Please try again, or try a smaller file.';
+      }
+      return "We couldn't reach the server. Check your internet connection and try again.";
+    }
+
+    const fromServer = messageFromBody(err.response.data);
+
+    // Server-provided text is the most specific thing we have for client errors.
+    if (fromServer && status && status < 500) return fromServer;
+
+    if (status === 413) return 'This file is too large to upload. Please choose a smaller file.';
+    if (status === 429) return 'Too many requests right now. Please wait a minute and try again.';
+    if (status === 408 || status === 504) {
+      return 'The server took too long to finish. Please try again, or try a smaller file.';
+    }
+    if (status === 502 || status === 503) {
+      return 'The service is temporarily unavailable. Please try again in a moment.';
+    }
+    if (status && status >= 500) {
+      return fromServer && !/^internal server error$/i.test(fromServer)
+        ? fromServer
+        : 'Something went wrong on our side. Please try again in a moment.';
+    }
+    if (status === 401 || status === 403) return fromServer || 'You are not allowed to do that.';
+    if (status === 404) return fromServer || 'We could not find what you asked for.';
+    return fromServer || fallback;
+  }
+
+  if (err instanceof Error && err.message && !GENERIC_STATUS_TEXT.test(err.message)) {
+    return err.message;
+  }
+  if (typeof err === 'string' && err.trim()) return err;
+  return fallback;
+}
+
+api.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    if (axios.isAxiosError(error) && !isRequestCancelled(error)) {
+      const message = getErrorMessage(error);
+      (error as AxiosError & { userMessage?: string }).userMessage = message;
+      error.message = message;
+      const data = error.response?.data;
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        (data as Record<string, unknown>).detail = message;
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export interface TaskResponse {
   success: boolean;
@@ -27,18 +218,18 @@ export interface TaskResponse {
 }
 
 // PDF endpoints
-export async function mergePdfs(files: File[]): Promise<TaskResponse> {
+export async function mergePdfs(files: File[], config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   files.forEach((file) => formData.append('files', file));
-  const response = await api.post('/pdf/merge', formData);
+  const response = await api.post('/pdf/merge', formData, config);
   return response.data;
 }
 
-export async function splitPdf(file: File, pages: string): Promise<TaskResponse> {
+export async function splitPdf(file: File, pages: string, config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('pages', pages);
-  const response = await api.post('/pdf/split', formData);
+  const response = await api.post('/pdf/split', formData, config);
   return response.data;
 }
 
@@ -53,7 +244,8 @@ export interface CompressOptions {
 
 export async function compressPdf(
   file: File,
-  options: CompressOptions | 'extreme' | 'low' | 'medium' | 'high'
+  options: CompressOptions | 'extreme' | 'low' | 'medium' | 'high',
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -80,20 +272,21 @@ export async function compressPdf(
     }
   }
 
-  const response = await api.post('/pdf/compress', formData);
+  const response = await api.post('/pdf/compress', formData, config);
   return response.data;
 }
 
 export async function rotatePdf(
   file: File,
   rotation: number,
-  pages: string = 'all'
+  pages: string = 'all',
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('rotation', rotation.toString());
   formData.append('pages', pages);
-  const response = await api.post('/pdf/rotate', formData);
+  const response = await api.post('/pdf/rotate', formData, config);
   return response.data;
 }
 
@@ -107,18 +300,19 @@ export async function addWatermark(
     fontSize?: number;
     color?: string;
     pages?: string;
-  } = {}
+  } = {},
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('text', text);
   if (options.position) formData.append('position', options.position);
-  if (options.opacity) formData.append('opacity', options.opacity.toString());
-  if (options.rotation) formData.append('rotation', options.rotation.toString());
+  if (options.opacity !== undefined) formData.append('opacity', options.opacity.toString());
+  if (options.rotation !== undefined) formData.append('rotation', options.rotation.toString());
   if (options.fontSize) formData.append('font_size', options.fontSize.toString());
   if (options.color) formData.append('color', options.color);
   if (options.pages) formData.append('pages', options.pages);
-  const response = await api.post('/pdf/watermark', formData);
+  const response = await api.post('/pdf/watermark', formData, config);
   return response.data;
 }
 
@@ -130,7 +324,8 @@ export async function addPageNumbers(
     formatTemplate?: string;
     fontSize?: number;
     margin?: number;
-  } = {}
+  } = {},
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -139,7 +334,7 @@ export async function addPageNumbers(
   if (options.formatTemplate) formData.append('format_template', options.formatTemplate);
   if (options.fontSize) formData.append('font_size', options.fontSize.toString());
   if (options.margin) formData.append('margin', options.margin.toString());
-  const response = await api.post('/pdf/page-numbers', formData);
+  const response = await api.post('/pdf/page-numbers', formData, config);
   return response.data;
 }
 
@@ -151,7 +346,8 @@ export async function protectPdf(
     allowPrinting?: boolean;
     allowCopying?: boolean;
     allowModifying?: boolean;
-  }
+  },
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -160,94 +356,200 @@ export async function protectPdf(
   formData.append('allow_printing', String(options.allowPrinting ?? true));
   formData.append('allow_copying', String(options.allowCopying ?? false));
   formData.append('allow_modifying', String(options.allowModifying ?? false));
-  const response = await api.post('/pdf/protect', formData);
+  const response = await api.post('/pdf/protect', formData, config);
   return response.data;
 }
 
-export async function unlockPdf(file: File, password: string): Promise<TaskResponse> {
+export async function unlockPdf(file: File, password: string, config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('password', password);
-  const response = await api.post('/pdf/unlock', formData);
+  const response = await api.post('/pdf/unlock', formData, config);
   return response.data;
 }
 
-export async function organizePdf(file: File, pageOrder: number[]): Promise<TaskResponse> {
+export async function organizePdf(file: File, pageOrder: number[], config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('page_order', pageOrder.join(','));
-  const response = await api.post('/pdf/organize', formData);
+  const response = await api.post('/pdf/organize', formData, config);
   return response.data;
 }
 
-export async function deletePdfPages(file: File, pages: number[]): Promise<TaskResponse> {
+export async function deletePdfPages(file: File, pages: number[], config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('pages', pages.join(','));
-  const response = await api.post('/pdf/delete-pages', formData);
+  const response = await api.post('/pdf/delete-pages', formData, config);
   return response.data;
 }
 
-export async function extractPdfPages(file: File, pages: number[]): Promise<TaskResponse> {
+export async function extractPdfPages(file: File, pages: number[], config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('pages', pages.join(','));
-  const response = await api.post('/pdf/extract-pages', formData);
+  const response = await api.post('/pdf/extract-pages', formData, config);
   return response.data;
 }
 
 // Image endpoints
+// Every image response carries `data.metadata` with at least original_size and output_size.
+export interface ImageStats {
+  original_size?: number;
+  output_size?: number;
+}
+export interface CompressImageStats extends ImageStats {
+  compressed_size?: number;
+  saved_bytes?: number;
+  /** Percent saved (0-100). */
+  compression_ratio?: number;
+  format?: string;
+  method?: string;
+  /** True when the image could not be made smaller: the original bytes are returned. */
+  kept_original?: boolean;
+  metadata_removed?: boolean;
+  had_location_data?: boolean;
+  animated?: boolean;
+}
+export interface ResizeImageStats extends ImageStats {
+  original_width?: number;
+  original_height?: number;
+  width?: number;
+  height?: number;
+  fit?: 'contain' | 'cover' | 'exact';
+  upscaled?: boolean;
+  animation_dropped?: boolean;
+}
+export interface ConvertImageStats extends ImageStats {
+  source_format?: string;
+  target_format?: string;
+  animation_dropped?: boolean;
+  flattened_transparency?: boolean;
+}
+export interface RemoveBackgroundStats extends ImageStats {
+  width?: number;
+  height?: number;
+  has_transparency?: boolean;
+  matting?: boolean;
+}
+export interface WatermarkImageStats extends ImageStats {
+  watermark_type?: 'text' | 'image';
+  font?: string;
+  font_size_px?: number;
+  position?: string;
+  animation_dropped?: boolean;
+}
+
+/** TaskResponse whose `data.metadata` is typed for an image tool. */
+export type ImageTaskResponse<M extends ImageStats> = Omit<TaskResponse, 'data'> & {
+  data: Omit<TaskResponse['data'], 'metadata'> & { metadata?: M };
+};
+
 export async function compressImage(
   file: File,
-  quality: number
-): Promise<TaskResponse> {
+  quality: number,
+  config?: RequestConfig & { stripMetadata?: boolean }
+): Promise<ImageTaskResponse<CompressImageStats>> {
+  const { stripMetadata, ...req } = config ?? {};
   const formData = new FormData();
   formData.append('file', file);
   formData.append('quality', quality.toString());
-  const response = await api.post('/image/compress', formData);
+  if (stripMetadata !== undefined) formData.append('strip_metadata', String(stripMetadata));
+  const response = await api.post('/image/compress', formData, req);
   return response.data;
+}
+
+export interface ResizeImageExtras {
+  fit?: 'contain' | 'cover' | 'exact';
+  /** Scale both sides by this percent (1-1000) instead of width/height. */
+  percentage?: number;
+  noUpscale?: boolean;
+  /** JPEG/WebP output quality 1-100. */
+  quality?: number;
 }
 
 export async function resizeImage(
   file: File,
   width?: number,
   height?: number,
-  maintainRatio?: boolean
-): Promise<TaskResponse> {
+  maintainRatio?: boolean,
+  config?: RequestConfig & ResizeImageExtras
+): Promise<ImageTaskResponse<ResizeImageStats>> {
+  const { fit, percentage, noUpscale, quality, ...req } = config ?? {};
   const formData = new FormData();
   formData.append('file', file);
   if (width) formData.append('width', width.toString());
   if (height) formData.append('height', height.toString());
-  if (maintainRatio !== undefined)
-    formData.append('maintain_ratio', maintainRatio.toString());
-  const response = await api.post('/image/resize', formData);
+  if (maintainRatio !== undefined) formData.append('maintain_ratio', maintainRatio.toString());
+  if (fit) formData.append('fit', fit);
+  if (percentage) formData.append('percentage', percentage.toString());
+  if (noUpscale) formData.append('no_upscale', 'true');
+  if (quality) formData.append('quality', quality.toString());
+  const response = await api.post('/image/resize', formData, req);
   return response.data;
 }
 
 export async function convertImage(
   file: File,
   format: string,
-  quality: number
-): Promise<TaskResponse> {
+  quality: number,
+  config?: RequestConfig & { background?: string }
+): Promise<ImageTaskResponse<ConvertImageStats>> {
+  const { background, ...req } = config ?? {};
   const formData = new FormData();
   formData.append('file', file);
   formData.append('format', format);
   formData.append('quality', quality.toString());
-  const response = await api.post('/image/convert', formData);
+  if (background) formData.append('background', background);
+  const response = await api.post('/image/convert', formData, req);
   return response.data;
+}
+
+export interface RemoveBackgroundOptions {
+  /** 'transparent' (default), 'white', 'black' or '#RRGGBB'. */
+  bgColor?: string;
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+  quality?: number;
+  /** Skip alpha matting: quicker, softer hair and fine edges. */
+  fastMode?: boolean;
+}
+
+export async function removeBackground(
+  file: File,
+  options: RemoveBackgroundOptions = {},
+  config?: RequestConfig
+): Promise<ImageTaskResponse<RemoveBackgroundStats>> {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (options.bgColor && options.bgColor !== 'transparent') formData.append('bg_color', options.bgColor);
+  if (options.outputFormat) formData.append('output_format', options.outputFormat);
+  if (options.quality) formData.append('quality', options.quality.toString());
+  if (options.fastMode) formData.append('fast_mode', 'true');
+  const response = await api.post('/image/remove-background', formData, config);
+  return response.data;
+}
+
+export interface ImageWatermarkOptions {
+  /** top|center|bottom x left|center|right (e.g. "top-left", "center") or "tile". */
+  position?: string;
+  opacity?: number;
+  /** Size for a 1000 px wide picture; the server scales it with the image. */
+  fontSize?: number;
+  color?: string;
+  /** Degrees, clockwise. */
+  rotation?: number;
+  /** Logo to use instead of (or without) text. */
+  image?: File;
+  /** Logo width as percent of the image width (2-100). */
+  imageScale?: number;
 }
 
 export async function addImageWatermark(
   file: File,
   text: string,
-  options: {
-    position?: string;
-    opacity?: number;
-    fontSize?: number;
-    color?: string;
-    rotation?: number;
-  } = {}
-): Promise<TaskResponse> {
+  options: ImageWatermarkOptions = {},
+  config?: RequestConfig
+): Promise<ImageTaskResponse<WatermarkImageStats>> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('text', text);
@@ -256,15 +558,19 @@ export async function addImageWatermark(
   if (options.fontSize) formData.append('font_size', options.fontSize.toString());
   if (options.color) formData.append('color', options.color);
   if (options.rotation !== undefined) formData.append('rotation', options.rotation.toString());
-  const response = await api.post('/image/watermark', formData);
+  if (options.image) {
+    formData.append('watermark_image', options.image);
+    if (options.imageScale) formData.append('image_scale', options.imageScale.toString());
+  }
+  const response = await api.post('/image/watermark', formData, config);
   return response.data;
 }
 
 // Document endpoints
-export async function wordToPdf(file: File): Promise<TaskResponse> {
+export async function wordToPdf(file: File, config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
-  const response = await api.post('/document/word-to-pdf', formData);
+  const response = await api.post('/document/word-to-pdf', formData, config);
   return response.data;
 }
 
@@ -275,32 +581,34 @@ export interface PdfToWordOptions {
 
 export async function pdfToWord(
   file: File,
-  options: PdfToWordOptions = {}
+  options: PdfToWordOptions = {},
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   if (options.quality) formData.append('quality', options.quality);
   if (options.lang) formData.append('lang', options.lang);
-  const response = await api.post('/document/pdf-to-word', formData);
+  const response = await api.post('/document/pdf-to-word', formData, config);
   return response.data;
 }
 
-export async function excelToPdf(file: File): Promise<TaskResponse> {
+export async function excelToPdf(file: File, config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
-  const response = await api.post('/document/excel-to-pdf', formData);
+  const response = await api.post('/document/excel-to-pdf', formData, config);
   return response.data;
 }
 
 // PDF to PowerPoint
 export async function pdfToPowerPoint(
   file: File,
-  dpi: number = 150
+  dpi: number = 150,
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('dpi', dpi.toString());
-  const response = await api.post('/pdf/to-powerpoint', formData);
+  const response = await api.post('/pdf/to-powerpoint', formData, config);
   return response.data;
 }
 
@@ -308,26 +616,28 @@ export async function pdfToPowerPoint(
 export async function redactPdf(
   file: File,
   searchTerms: string[],
-  redactColor?: string
+  redactColor?: string,
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('search_terms', searchTerms.join(','));
   if (redactColor) formData.append('redact_color', redactColor);
-  const response = await api.post('/pdf/redact', formData);
+  const response = await api.post('/pdf/redact', formData, config);
   return response.data;
 }
 
 export async function redactPdfPatterns(
   file: File,
   patternTypes: ('email' | 'phone' | 'ssn' | 'credit_card' | 'custom')[],
-  customPattern?: string
+  customPattern?: string,
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('pattern_types', patternTypes.join(','));
   if (customPattern) formData.append('custom_pattern', customPattern);
-  const response = await api.post('/pdf/redact-patterns', formData);
+  const response = await api.post('/pdf/redact-patterns', formData, config);
   return response.data;
 }
 
@@ -335,25 +645,27 @@ export async function redactPdfPatterns(
 export async function comparePdfs(
   file1: File,
   file2: File,
-  outputMode: 'visual' | 'text' = 'visual'
+  outputMode: 'visual' | 'text' = 'visual',
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file1', file1);
   formData.append('file2', file2);
   formData.append('output_mode', outputMode);
-  const response = await api.post('/pdf/compare', formData);
+  const response = await api.post('/pdf/compare', formData, config);
   return response.data;
 }
 
 // PDF to PDF/A
 export async function pdfToPdfA(
   file: File,
-  level: '1b' | '2b' | '3b' = '2b'
+  level: '1b' | '2b' | '3b' = '2b',
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('level', level);
-  const response = await api.post('/pdf/to-pdfa', formData);
+  const response = await api.post('/pdf/to-pdfa', formData, config);
   return response.data;
 }
 
@@ -368,7 +680,8 @@ export async function addTextToPdf(
     fontSize?: number;
     fontName?: string;
     color?: string;
-  } = {}
+  } = {},
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -379,7 +692,7 @@ export async function addTextToPdf(
   if (options.fontSize) formData.append('font_size', options.fontSize.toString());
   if (options.fontName) formData.append('font_name', options.fontName);
   if (options.color) formData.append('color', options.color);
-  const response = await api.post('/pdf/add-text', formData);
+  const response = await api.post('/pdf/add-text', formData, config);
   return response.data;
 }
 
@@ -392,7 +705,8 @@ export async function addImageToPdf(
   options: {
     width?: number;
     height?: number;
-  } = {}
+  } = {},
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -402,7 +716,7 @@ export async function addImageToPdf(
   formData.append('y', y.toString());
   if (options.width) formData.append('width', options.width.toString());
   if (options.height) formData.append('height', options.height.toString());
-  const response = await api.post('/pdf/add-image-overlay', formData);
+  const response = await api.post('/pdf/add-image-overlay', formData, config);
   return response.data;
 }
 
@@ -412,7 +726,8 @@ export async function addCommentToPdf(
   x: number,
   y: number,
   comment: string,
-  author?: string
+  author?: string,
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -421,7 +736,7 @@ export async function addCommentToPdf(
   formData.append('y', y.toString());
   formData.append('comment', comment);
   if (author) formData.append('author', author);
-  const response = await api.post('/pdf/add-comment', formData);
+  const response = await api.post('/pdf/add-comment', formData, config);
   return response.data;
 }
 
@@ -432,7 +747,8 @@ export async function cropPdf(
   top: number,
   right: number,
   bottom: number,
-  pages: string = 'all'
+  pages: string = 'all',
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -441,53 +757,31 @@ export async function cropPdf(
   formData.append('right', right.toString());
   formData.append('bottom', bottom.toString());
   formData.append('pages', pages);
-  const response = await api.post('/pdf/crop', formData);
+  const response = await api.post('/pdf/crop', formData, config);
   return response.data;
 }
 
 // PDF Repair
-export async function repairPdf(file: File): Promise<TaskResponse> {
+export async function repairPdf(file: File, config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
-  const response = await api.post('/pdf/repair', formData);
-  return response.data;
-}
-
-// PDF Sign
-export async function signPdf(
-  file: File,
-  signatureImage: File,
-  page: number,
-  x: number,
-  y: number,
-  width?: number,
-  height?: number
-): Promise<TaskResponse> {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('signature', signatureImage);
-  formData.append('page', page.toString());
-  formData.append('x', x.toString());
-  formData.append('y', y.toString());
-  if (width) formData.append('width', width.toString());
-  if (height) formData.append('height', height.toString());
-  const response = await api.post('/pdf/sign', formData);
+  const response = await api.post('/pdf/repair', formData, config);
   return response.data;
 }
 
 // Image to PDF
-export async function imageToPdf(files: File[]): Promise<TaskResponse> {
+export async function imageToPdf(files: File[], config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   files.forEach((file) => formData.append('files', file));
-  const response = await api.post('/pdf/from-image', formData);
+  const response = await api.post('/pdf/from-image', formData, config);
   return response.data;
 }
 
 // PDF to Excel
-export async function pdfToExcel(file: File): Promise<TaskResponse> {
+export async function pdfToExcel(file: File, config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
-  const response = await api.post('/pdf/to-excel', formData);
+  const response = await api.post('/pdf/to-excel', formData, config);
   return response.data;
 }
 
@@ -497,21 +791,22 @@ export async function htmlToPdf(
   options: {
     pageSize?: string;
     orientation?: string;
-  } = {}
+  } = {},
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('url', url);
   if (options.pageSize) formData.append('page_size', options.pageSize);
   if (options.orientation) formData.append('orientation', options.orientation);
-  const response = await api.post('/document/html-to-pdf', formData);
+  const response = await api.post('/document/html-to-pdf', formData, config);
   return response.data;
 }
 
 // PowerPoint to PDF
-export async function pptxToPdf(file: File): Promise<TaskResponse> {
+export async function pptxToPdf(file: File, config?: RequestConfig): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
-  const response = await api.post('/document/pptx-to-pdf', formData);
+  const response = await api.post('/document/pptx-to-pdf', formData, config);
   return response.data;
 }
 
@@ -550,7 +845,8 @@ export async function findTextInPdf(
   options: {
     matchCase?: boolean;
     page?: number;
-  } = {}
+  } = {},
+  config?: RequestConfig
 ): Promise<FindTextResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -561,7 +857,7 @@ export async function findTextInPdf(
   if (options.page !== undefined) {
     formData.append('page', String(options.page));
   }
-  const response = await api.post('/pdf/find-text', formData);
+  const response = await api.post('/pdf/find-text', formData, config);
   return response.data;
 }
 
@@ -576,12 +872,13 @@ export interface TextReplacement {
 // Replace text in PDF
 export async function replaceTextInPdf(
   file: File,
-  replacements: TextReplacement[]
+  replacements: TextReplacement[],
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('replacements', JSON.stringify(replacements));
-  const response = await api.post('/pdf/replace-text', formData);
+  const response = await api.post('/pdf/replace-text', formData, config);
   return response.data;
 }
 
@@ -619,10 +916,10 @@ export interface FormFieldsResponse {
 }
 
 // Get form fields from PDF
-export async function getFormFields(file: File): Promise<FormFieldsResponse> {
+export async function getFormFields(file: File, config?: RequestConfig): Promise<FormFieldsResponse> {
   const formData = new FormData();
   formData.append('file', file);
-  const response = await api.post('/pdf/form-fields', formData);
+  const response = await api.post('/pdf/form-fields', formData, config);
   return response.data;
 }
 
@@ -630,13 +927,14 @@ export async function getFormFields(file: File): Promise<FormFieldsResponse> {
 export async function fillFormPdf(
   file: File,
   fieldValues: Record<string, string | boolean>,
-  flatten: boolean = false
+  flatten: boolean = false,
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('field_values', JSON.stringify(fieldValues));
   formData.append('flatten', String(flatten));
-  const response = await api.post('/pdf/fill-form', formData);
+  const response = await api.post('/pdf/fill-form', formData, config);
   return response.data;
 }
 
@@ -743,7 +1041,8 @@ export type EditOperation =
 export async function editPdfCombined(
   file: File,
   operations: EditOperation[],
-  images?: File[]
+  images?: File[],
+  config?: RequestConfig
 ): Promise<TaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -751,7 +1050,7 @@ export async function editPdfCombined(
   if (images && images.length > 0) {
     images.forEach((img) => formData.append('images', img));
   }
-  const response = await api.post('/pdf/edit', formData);
+  const response = await api.post('/pdf/edit', formData, config);
   return response.data;
 }
 
@@ -805,17 +1104,18 @@ export async function cancelTask(taskId: string): Promise<{ success: boolean; da
 // These endpoints queue the task for background processing and return immediately
 
 // Merge PDFs (async)
-export async function mergePdfsAsync(files: File[]): Promise<AsyncTaskResponse> {
+export async function mergePdfsAsync(files: File[], config?: RequestConfig): Promise<AsyncTaskResponse> {
   const formData = new FormData();
   files.forEach((file) => formData.append('files', file));
-  const response = await api.post('/pdf/merge/async', formData);
+  const response = await api.post('/pdf/merge/async', formData, config);
   return response.data;
 }
 
 // Compress PDF (async)
 export async function compressPdfAsync(
   file: File,
-  options: CompressOptions | 'extreme' | 'low' | 'medium' | 'high'
+  options: CompressOptions | 'extreme' | 'low' | 'medium' | 'high',
+  config?: RequestConfig
 ): Promise<AsyncTaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -841,16 +1141,16 @@ export async function compressPdfAsync(
     }
   }
 
-  const response = await api.post('/pdf/compress/async', formData);
+  const response = await api.post('/pdf/compress/async', formData, config);
   return response.data;
 }
 
 // Split PDF (async)
-export async function splitPdfAsync(file: File, pages: string): Promise<AsyncTaskResponse> {
+export async function splitPdfAsync(file: File, pages: string, config?: RequestConfig): Promise<AsyncTaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('pages', pages);
-  const response = await api.post('/pdf/split/async', formData);
+  const response = await api.post('/pdf/split/async', formData, config);
   return response.data;
 }
 
@@ -858,13 +1158,14 @@ export async function splitPdfAsync(file: File, pages: string): Promise<AsyncTas
 export async function rotatePdfAsync(
   file: File,
   rotation: number,
-  pages: string = 'all'
+  pages: string = 'all',
+  config?: RequestConfig
 ): Promise<AsyncTaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('rotation', rotation.toString());
   formData.append('pages', pages);
-  const response = await api.post('/pdf/rotate/async', formData);
+  const response = await api.post('/pdf/rotate/async', formData, config);
   return response.data;
 }
 
@@ -879,7 +1180,8 @@ export async function addWatermarkAsync(
     fontSize?: number;
     color?: string;
     pages?: string;
-  } = {}
+  } = {},
+  config?: RequestConfig
 ): Promise<AsyncTaskResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -890,7 +1192,7 @@ export async function addWatermarkAsync(
   if (options.fontSize) formData.append('font_size', options.fontSize.toString());
   if (options.color) formData.append('color', options.color);
   if (options.pages) formData.append('pages', options.pages);
-  const response = await api.post('/pdf/watermark/async', formData);
+  const response = await api.post('/pdf/watermark/async', formData, config);
   return response.data;
 }
 

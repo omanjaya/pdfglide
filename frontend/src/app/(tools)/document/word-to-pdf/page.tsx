@@ -1,110 +1,114 @@
 'use client';
 
 import { useState } from 'react';
-import { FileOutput, Shield, Clock } from 'lucide-react';
-import { ToolLayout } from '@/components/shared/ToolLayout';
+import { FileOutput, FileCheck2, Type, Zap } from 'lucide-react';
+import { ToolLayout, ToolPanel } from '@/components/shared/ToolLayout';
 import { FileUploader } from '@/components/shared/FileUploader';
-import { ProcessingStatus } from '@/components/shared/ProcessingStatus';
-import { Button } from '@/components/ui/Button';
-import { Card, CardContent } from '@/components/ui/card';
+import { FeatureGrid, InfoNote, TrustStrip } from '@/components/shared/TrustStrip';
+import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { ProcessingCard } from '@/components/shared/ProcessingCard';
+import { ResultCard } from '@/components/shared/ResultCard';
+import { ErrorCard } from '@/components/shared/ErrorCard';
+import { useToolRun } from '@/hooks/useToolRun';
 import { wordToPdf, TaskResponse } from '@/lib/api';
 
-type Status = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
+const ACCEPT = {
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'application/msword': ['.doc'],
+};
 
 export default function WordToPdfPage() {
   const [files, setFiles] = useState<File[]>([]);
-  const [status, setStatus] = useState<Status>('idle');
-  const [result, setResult] = useState<TaskResponse['data'] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const run = useToolRun<TaskResponse['data']>();
+  const file = files[0];
 
-  const handleProcess = async () => {
-    if (files.length === 0) return;
-
-    setStatus('processing');
-    setError(null);
-
-    try {
-      const response = await wordToPdf(files[0]);
-      if (response.success) {
-        setResult(response.data);
-        setStatus('completed');
-      } else {
-        setError(response.error || 'Processing failed');
-        setStatus('error');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'An error occurred');
-      setStatus('error');
-    }
+  const convert = () => {
+    if (file) run.run((req) => wordToPdf(file, req));
   };
-
-  const handleReset = () => {
+  const startOver = () => {
+    run.reset();
     setFiles([]);
-    setStatus('idle');
-    setResult(null);
-    setError(null);
   };
 
   return (
     <ToolLayout
       title="Word to PDF"
-      description="Convert Word documents to PDF format"
+      description="Turn Word documents (DOCX, DOC) into PDF files you can share and print."
       icon={FileOutput}
-      color="bg-blue-500"
+      tone="blue"
+      status={run.announcement}
     >
-      {status === 'idle' && (
-        <div className="space-y-6">
-          <FileUploader
-            accept={{
-              'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-              'application/msword': ['.doc'],
-            }}
-            maxFiles={1}
-            multiple={false}
-            files={files}
-            onFilesChange={setFiles}
-          />
+      {run.status === 'idle' && (
+        <ToolPanel aria-label="Convert Word to PDF">
+          <FileUploader accept={ACCEPT} multiple={false} files={files} onFilesChange={setFiles} tone="blue" typeLabel="DOCX or DOC" />
 
-          {files.length > 0 && (
-            <>
-              {/* Security info */}
-              <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex items-start gap-3">
-                    <Shield className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" />
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-green-800 dark:text-green-200">
-                        Your data is secure
-                      </p>
-                      <p className="text-xs text-green-700 dark:text-green-300">
-                        <Clock className="inline h-3 w-3 mr-1" />
-                        Files automatically deleted after download or within 5 minutes
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div className="flex justify-center">
-                <Button size="lg" onClick={handleProcess}>
-                  <FileOutput className="mr-2 h-5 w-5" />
-                  Convert to PDF
-                </Button>
-              </div>
-            </>
+          {!file && (
+            <FeatureGrid
+              tone="blue"
+              items={[
+                { icon: FileCheck2, label: 'DOCX and DOC', desc: 'Word 97 and newer' },
+                { icon: Type, label: 'Layout kept', desc: 'Pages, tables, images' },
+                { icon: Zap, label: 'Fast', desc: 'Usually a few seconds' },
+              ]}
+            />
           )}
-        </div>
+
+          {file && (
+            <div className="mt-6 space-y-5">
+              <InfoNote>
+                Fonts are matched to the closest typeface available on our server, so text may reflow
+                slightly if your document uses a font we do not have.
+              </InfoNote>
+              <div className="flex justify-center">
+                <PrimaryButton tone="blue" icon={<FileOutput className="h-5 w-5" />} onClick={convert}>
+                  Convert to PDF
+                </PrimaryButton>
+              </div>
+            </div>
+          )}
+          <TrustStrip />
+        </ToolPanel>
       )}
 
-      <ProcessingStatus
-        status={status}
-        message={error || undefined}
-        fileName={result?.file_name}
-        fileSize={result?.file_size}
-        downloadUrl={result?.download_url}
-        onRetry={handleProcess}
-        onReset={handleReset}
-      />
+      {run.isBusy && (
+        <ProcessingCard
+          stage={run.status === 'uploading' ? 'uploading' : 'processing'}
+          progress={run.uploadProgress}
+          loaded={run.uploadLoaded}
+          total={run.uploadTotal}
+          fileName={file?.name}
+          fileSize={file?.size}
+          title="Converting to PDF"
+          hint="Larger documents can take up to a minute."
+          tone="blue"
+          onCancel={run.cancel}
+        />
+      )}
+
+      {run.status === 'done' && run.result && (
+        <ResultCard
+          title="Your PDF is ready"
+          fileName={run.result.file_name}
+          fileSize={run.result.file_size}
+          downloadUrl={run.result.download_url}
+          downloadLabel="Download PDF"
+          resetLabel="Convert another file"
+          onReset={startOver}
+          tone="blue"
+        />
+      )}
+
+      {run.status === 'error' && (
+        <ErrorCard
+          message={run.error || 'Something went wrong.'}
+          fileName={file?.name}
+          fileSize={file?.size}
+          onRetry={convert}
+          onEdit={run.backToEdit}
+          editLabel="Choose a different file"
+          onReset={startOver}
+        />
+      )}
     </ToolLayout>
   );
 }

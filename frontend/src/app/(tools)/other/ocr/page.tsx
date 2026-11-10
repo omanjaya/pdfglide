@@ -1,163 +1,217 @@
 'use client';
 
-import { useState } from 'react';
-import { ScanText, Copy, Check } from 'lucide-react';
-import { ToolLayout } from '@/components/shared/ToolLayout';
+import { useMemo, useState } from 'react';
+import { ScanText, Copy, Check, Download, Languages, Image as ImageIcon, FileText } from 'lucide-react';
+import { ToolLayout, ToolPanel } from '@/components/shared/ToolLayout';
 import { FileUploader } from '@/components/shared/FileUploader';
-import { ProcessingStatus } from '@/components/shared/ProcessingStatus';
+import { FeatureGrid, InfoNote, TrustStrip } from '@/components/shared/TrustStrip';
+import { Field } from '@/components/shared/OptionsPanel';
+import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { ProcessingCard } from '@/components/shared/ProcessingCard';
+import { ResultCard } from '@/components/shared/ResultCard';
+import { ErrorCard } from '@/components/shared/ErrorCard';
+import { OCR_LANGUAGES } from '@/components/shared/ocrLanguages';
 import { Button } from '@/components/ui/Button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
+import { useToolRun } from '@/hooks/useToolRun';
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
 
-type Status = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
+interface OcrData {
+  task_id: string;
+  text: string;
+  language: string;
+}
 
-const languages = [
-  { value: 'eng', label: 'English' },
-  { value: 'ind', label: 'Indonesian' },
-  { value: 'jpn', label: 'Japanese' },
-  { value: 'chi_sim', label: 'Chinese (Simplified)' },
-  { value: 'ara', label: 'Arabic' },
-];
+const ACCEPT = {
+  'application/pdf': ['.pdf'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/webp': ['.webp'],
+};
 
 export default function OCRPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [language, setLanguage] = useState('eng');
-  const [status, setStatus] = useState<Status>('idle');
-  const [extractedText, setExtractedText] = useState<string>('');
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const run = useToolRun<OcrData>();
+  const { copy, copied, failed } = useCopyToClipboard();
+  const file = files[0];
+  const text = run.result?.text ?? '';
+  const languageLabel = OCR_LANGUAGES.find((l) => l.value === language)?.label ?? language;
 
-  const handleProcess = async () => {
-    if (files.length === 0) return;
+  const stats = useMemo(() => {
+    const t = text.trim();
+    return { words: t ? t.split(/\s+/).length : 0, chars: t.length };
+  }, [text]);
 
-    setStatus('processing');
-    setError(null);
-    setExtractedText('');
-
-    try {
+  const extract = () => {
+    if (!file) return;
+    run.run(async (req) => {
       const formData = new FormData();
-      formData.append('file', files[0]);
+      formData.append('file', file);
       formData.append('language', language);
-
-      const response = await api.post('/ocr/extract', formData);
-
-      if (response.data.success) {
-        setExtractedText(response.data.data.text);
-        setStatus('completed');
-      } else {
-        setError(response.data.error || 'Processing failed');
-        setStatus('error');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'An error occurred');
-      setStatus('error');
-    }
+      const response = await api.post('/ocr/extract', formData, req);
+      return response.data;
+    });
   };
-
-  const handleReset = () => {
+  const startOver = () => {
+    run.reset();
     setFiles([]);
     setLanguage('eng');
-    setStatus('idle');
-    setExtractedText('');
-    setError(null);
   };
 
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(extractedText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  // Plain-text download generated in the browser from text we already have (not a server file).
+  const downloadText = () => {
+    const base = (file?.name || 'extracted-text').replace(/\.[^.]+$/, '');
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${base}-text.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+
+  const isPdf = file?.type === 'application/pdf' || file?.name.toLowerCase().endsWith('.pdf');
 
   return (
     <ToolLayout
       title="OCR - Extract Text"
-      description="Extract text from images and scanned PDFs"
+      description="Read the text in photos, screenshots and scanned PDFs."
       icon={ScanText}
-      color="bg-purple-500"
+      tone="purple"
+      status={run.status === 'done' && !text.trim() ? 'No text was found in this file.' : run.announcement}
     >
-      {status === 'idle' && (
-        <div className="space-y-6">
+      {run.status === 'idle' && (
+        <ToolPanel aria-label="Extract text with OCR">
           <FileUploader
-            accept={{
-              'application/pdf': ['.pdf'],
-              'image/jpeg': ['.jpg', '.jpeg'],
-              'image/png': ['.png'],
-              'image/webp': ['.webp'],
-            }}
-            maxFiles={1}
+            accept={ACCEPT}
             multiple={false}
             files={files}
             onFilesChange={setFiles}
+            tone="purple"
+            typeLabel="PDF, JPG, PNG or WebP"
+            hint="Clear, well-lit scans give the best results."
           />
 
-          {files.length > 0 && (
-            <>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Document language</label>
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  {languages.map((lang) => (
-                    <option key={lang.value} value={lang.value}>
-                      {lang.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex justify-center">
-                <Button size="lg" onClick={handleProcess}>
-                  <ScanText className="mr-2 h-5 w-5" />
-                  Extract Text
-                </Button>
-              </div>
-            </>
+          {!file && (
+            <FeatureGrid
+              tone="purple"
+              items={[
+                { icon: ImageIcon, label: 'Photos and scans', desc: 'JPG, PNG, WebP' },
+                { icon: FileText, label: 'Scanned PDFs', desc: 'Read page by page' },
+                { icon: Languages, label: '9 languages', desc: 'Pick the document language' },
+              ]}
+            />
           )}
-        </div>
+
+          {file && (
+            <div className="mt-6 space-y-5">
+              <Field
+                label="Document language"
+                hint="Choose the language the text is written in. A wrong choice gives garbled results."
+              >
+                {(a11y) => (
+                  <Select value={language} onValueChange={setLanguage}>
+                    <SelectTrigger className="min-h-[44px]" {...a11y}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {OCR_LANGUAGES.map((l) => (
+                        <SelectItem key={l.value} value={l.value}>
+                          {l.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </Field>
+              <div className="flex justify-center">
+                <PrimaryButton tone="purple" icon={<ScanText className="h-5 w-5" />} onClick={extract}>
+                  Extract text
+                </PrimaryButton>
+              </div>
+            </div>
+          )}
+          <TrustStrip />
+        </ToolPanel>
       )}
 
-      {status === 'processing' && (
-        <div className="rounded-lg border bg-card p-6">
-          <div className="flex items-center gap-3">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            <span className="font-medium">Extracting text...</span>
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            This may take a moment depending on the file size
+      {run.isBusy && (
+        <ProcessingCard
+          stage={run.status === 'uploading' ? 'uploading' : 'processing'}
+          progress={run.uploadProgress}
+          loaded={run.uploadLoaded}
+          total={run.uploadTotal}
+          fileName={file?.name}
+          fileSize={file?.size}
+          title="Reading the text"
+          hint={isPdf ? 'PDFs are read page by page, so long documents take longer.' : 'Reading text usually takes a few seconds.'}
+          tone="purple"
+          onCancel={run.cancel}
+        />
+      )}
+
+      {run.status === 'done' && run.result && text.trim() && (
+        <ResultCard
+          title="Text extracted"
+          tone="purple"
+          retentionNote={null}
+          onReset={startOver}
+          resetLabel="Read another file"
+          actions={
+            <>
+              <Button type="button" size="lg" className="min-h-[48px] bg-purple-700 text-base font-semibold text-white hover:bg-purple-800 focus-visible:ring-purple-600" onClick={() => copy(text)}>
+                {copied ? <Check className="mr-2 h-4 w-4" aria-hidden="true" /> : <Copy className="mr-2 h-4 w-4" aria-hidden="true" />}
+                {copied ? 'Copied' : failed ? 'Copy failed' : 'Copy text'}
+              </Button>
+              <Button type="button" variant="outline" size="lg" className="min-h-[48px]" onClick={downloadText}>
+                <Download className="mr-2 h-4 w-4" aria-hidden="true" />
+                Download .txt
+              </Button>
+            </>
+          }
+        >
+          <p className="mb-2 text-sm text-gray-600">
+            {stats.words.toLocaleString()} words · {stats.chars.toLocaleString()} characters · {languageLabel}
           </p>
-        </div>
+          <label htmlFor="ocr-text" className="sr-only">Extracted text</label>
+          <textarea
+            id="ocr-text"
+            readOnly
+            value={text}
+            rows={12}
+            className="max-h-96 min-h-[10rem] w-full resize-y rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm leading-relaxed text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600"
+          />
+          <p className="mt-2 text-xs text-gray-600">
+            OCR can misread characters, so proofread anything important. The text is shown here only: our
+            server does not keep a file for you to download.
+          </p>
+        </ResultCard>
       )}
 
-      {status === 'completed' && extractedText && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium">Extracted Text</h3>
-            <Button variant="outline" size="sm" onClick={handleCopy}>
-              {copied ? (
-                <Check className="mr-2 h-4 w-4" />
-              ) : (
-                <Copy className="mr-2 h-4 w-4" />
-              )}
-              {copied ? 'Copied!' : 'Copy'}
-            </Button>
-          </div>
-          <div className="max-h-96 overflow-auto rounded-lg border bg-muted/50 p-4">
-            <pre className="whitespace-pre-wrap text-sm">{extractedText}</pre>
-          </div>
-          <Button variant="outline" onClick={handleReset}>
-            Process another file
-          </Button>
-        </div>
+      {run.status === 'done' && run.result && !text.trim() && (
+        <ErrorCard
+          title="No text found"
+          message={`We could not read any text in this ${isPdf ? 'PDF' : 'image'}. Check that the language is set to ${languageLabel} and that the text is sharp and large enough, then try again.`}
+          fileName={file?.name}
+          fileSize={file?.size}
+          onEdit={run.backToEdit}
+          editLabel="Change language or file"
+          onReset={startOver}
+        />
       )}
 
-      {status === 'error' && (
-        <ProcessingStatus
-          status="error"
-          message={error || undefined}
-          onRetry={handleProcess}
-          onReset={handleReset}
+      {run.status === 'error' && (
+        <ErrorCard
+          message={run.error || 'Something went wrong.'}
+          fileName={file?.name}
+          fileSize={file?.size}
+          onRetry={extract}
+          onEdit={run.backToEdit}
+          editLabel="Change file or language"
+          onReset={startOver}
         />
       )}
     </ToolLayout>
