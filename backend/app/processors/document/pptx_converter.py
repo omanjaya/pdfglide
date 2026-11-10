@@ -1,11 +1,9 @@
 """PowerPoint to PDF converter."""
 
-import asyncio
-import subprocess
-import shutil
 from pathlib import Path
 
 from app.processors.base import BaseProcessor
+from app.processors.document.office_converter import libreoffice_to_pdf
 
 
 class PowerPointToPDFConverter(BaseProcessor):
@@ -15,7 +13,8 @@ class PowerPointToPDFConverter(BaseProcessor):
         """
         Convert PowerPoint to PDF.
 
-        Uses LibreOffice in headless mode for conversion.
+        Uses LibreOffice in headless mode (private profile per call, timeout,
+        slide-friendly export options; see ``libreoffice_to_pdf``).
 
         Args:
             input_path: Path to the PowerPoint file (.pptx, .ppt, .odp)
@@ -23,66 +22,8 @@ class PowerPointToPDFConverter(BaseProcessor):
 
         Returns:
             Path to the generated PDF
+
+        Raises:
+            ProcessingError: if the conversion fails or times out.
         """
-        # Find LibreOffice executable
-        libreoffice_paths = [
-            "/usr/bin/libreoffice",
-            "/usr/bin/soffice",
-            "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-            "libreoffice",
-            "soffice",
-        ]
-
-        libreoffice = None
-        for path in libreoffice_paths:
-            if shutil.which(path):
-                libreoffice = path
-                break
-
-        if not libreoffice:
-            raise RuntimeError(
-                "LibreOffice not found. Please install LibreOffice for PPTX conversion."
-            )
-
-        # Create temp output directory
-        temp_dir = output_path.parent / "temp_pptx"
-        temp_dir.mkdir(exist_ok=True)
-
-        try:
-            # Run LibreOffice conversion
-            cmd = [
-                libreoffice,
-                "--headless",
-                "--convert-to", "pdf",
-                "--outdir", str(temp_dir),
-                str(input_path),
-            ]
-
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-
-            stdout, stderr = await process.communicate()
-
-            if process.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Unknown error"
-                raise RuntimeError(f"LibreOffice conversion failed: {error_msg}")
-
-            # Find the generated PDF
-            pdf_name = input_path.stem + ".pdf"
-            temp_pdf = temp_dir / pdf_name
-
-            if not temp_pdf.exists():
-                raise RuntimeError("PDF was not generated")
-
-            # Move to final location
-            shutil.move(str(temp_pdf), str(output_path))
-
-            return output_path
-
-        finally:
-            # Cleanup temp directory
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
+        return await libreoffice_to_pdf(input_path, output_path)

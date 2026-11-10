@@ -9,6 +9,7 @@ from app.processors.document.office_converter import OfficeConverter
 from app.processors.document.html_converter import HTMLToPDFConverter
 from app.processors.document.pptx_converter import PowerPointToPDFConverter
 from app.processors.document.simple_ocr_converter import SimpleOCRConverter
+from app.processors.document.pdf_to_word_converter import PDFToWordConverter
 
 
 class DocumentService(BaseService):
@@ -30,6 +31,7 @@ class DocumentService(BaseService):
         self.html_converter = HTMLToPDFConverter(self.processed_dir)
         self.pptx_converter = PowerPointToPDFConverter(self.processed_dir)
         self.ocr_converter = SimpleOCRConverter(self.processed_dir)
+        self.pdf_to_word_converter = PDFToWordConverter(self.processed_dir)
 
     async def word_to_pdf(self, file: Path) -> ProcessedResult:
         """Convert Word document to PDF."""
@@ -68,7 +70,9 @@ class DocumentService(BaseService):
         lang: str = "eng",
     ) -> ProcessedResult:
         """
-        Convert PDF to Word document with clean formatting.
+        Convert PDF to Word, preserving fonts, bold/italic, tables and images.
+
+        PDFs with a text layer use layout-preserving conversion; scans use OCR.
 
         Args:
             file: Input PDF file
@@ -76,12 +80,12 @@ class DocumentService(BaseService):
             lang: OCR language (eng, ind, chi_sim, jpn, kor, ara, deu, fra, spa)
 
         Returns:
-            ProcessedResult with converted DOCX file (clean single font, no bold)
+            ProcessedResult with converted DOCX file
         """
         output_id = self.generate_output_id()
         output_path = self.get_output_path(output_id, ".docx")
 
-        await self.ocr_converter.execute(
+        await self.pdf_to_word_converter.execute(
             file,
             output_path,
             lang=lang,

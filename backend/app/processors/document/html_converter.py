@@ -1,12 +1,15 @@
 """HTML to PDF converter."""
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Optional
 
 from app.processors.base import BaseProcessor
 from app.core.validators import validate_url_ssrf_safe_async
 from app.core.exceptions import ProcessingError
+
+logger = logging.getLogger(__name__)
 
 
 class HTMLToPDFConverter(BaseProcessor):
@@ -54,8 +57,9 @@ class HTMLToPDFConverter(BaseProcessor):
             return await self._convert_with_weasyprint(
                 output_path, url, html_content, page_size, margin
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            weasy_error = exc
+            logger.warning("weasyprint failed, trying playwright: %s", exc)
 
         # Fallback to playwright
         try:
@@ -63,7 +67,8 @@ class HTMLToPDFConverter(BaseProcessor):
                 output_path, url, html_content, page_size, margin
             )
         except Exception as e:
-            raise RuntimeError(f"HTML to PDF conversion failed: {e}")
+            logger.error("HTML to PDF failed (weasyprint: %s; playwright: %s)", weasy_error, e)
+            raise ProcessingError(f"HTML to PDF conversion failed: {weasy_error}")
 
     async def _convert_with_weasyprint(
         self,

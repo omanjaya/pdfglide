@@ -3,6 +3,7 @@
 import asyncio
 import subprocess
 import shutil
+import uuid
 from pathlib import Path
 from typing import Literal
 
@@ -67,6 +68,19 @@ class PDFToPDFAConverter(BaseProcessor):
 
         return None
 
+    @staticmethod
+    def _find_icc_profile() -> Path | None:
+        """Locate an sRGB ICC profile (shipped with Ghostscript / colord)."""
+        for candidate in (
+            "/usr/share/color/icc/ghostscript/srgb.icc",
+            "/usr/share/ghostscript/iccprofiles/srgb.icc",
+            "/usr/share/color/icc/colord/sRGB.icc",
+            "/usr/share/color/icc/sRGB.icc",
+        ):
+            if Path(candidate).is_file():
+                return Path(candidate)
+        return None
+
     async def _convert_with_ghostscript(
         self,
         input_path: Path,
@@ -75,47 +89,55 @@ class PDFToPDFAConverter(BaseProcessor):
         gs_path: str,
     ) -> Path:
         """Convert using Ghostscript."""
-        # Map level to Ghostscript PDFA definition
-        pdfa_def_map = {
-            "1b": "1",
-            "2b": "2",
-            "3b": "3",
-        }
-        pdfa_def = pdfa_def_map.get(pdfa_level, "2")
+        pdfa_def = {"1b": "1", "2b": "2", "3b": "3"}.get(pdfa_level, "2")
 
-        # Create PDFA definition file
-        pdfa_def_ps = self.output_dir / "PDFA_def.ps"
-        pdfa_def_content = f"""
-%!PS-Adobe-3.0
-% Ghostscript PDF/A definition file
+        icc = self._find_icc_profile()
+        if icc is None:
+            raise ProcessingError(
+                "sRGB ICC profile not found; cannot create a valid PDF/A OutputIntent"
+            )
 
-/ICCProfile (/usr/share/color/icc/colord/sRGB.icc)
-/OutputCondition (sRGB)
-/OutputConditionIdentifier (Custom)
-/RegistryName (http://www.color.org)
-/Title (PDF/A-{pdfa_level} conversion)
-
-% Set PDF/A conformance level
-[/Title (Converted to PDF/A-{pdfa_level})
- /DOCINFO pdfmark
-
-[ /pdf/a-{pdfa_def} /PDFA pdfmark
+        # PDF/A requires an OutputIntent with an embedded ICC profile. Ghostscript
+        # only writes it when this definition file is passed on the command line.
+        # (Unique name: concurrent requests share output_dir.)
+        pdfa_def_ps = self.output_dir / f"PDFA_def_{uuid.uuid4().hex}.ps"
+        icc_ps = str(icc).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        pdfa_def_ps.write_text(
+            f"""%!PS
+/ICCProfile ({icc_ps}) def
+[/_objdef {{icc_PDFA}} /type /stream /OBJ pdfmark
+[{{icc_PDFA}} <</N 3>> /PUT pdfmark
+[{{icc_PDFA}} ICCProfile (r) file /PUT pdfmark
+[/_objdef {{OutputIntent_PDFA}} /type /dict /OBJ pdfmark
+[{{OutputIntent_PDFA}} <<
+  /Type /OutputIntent
+  /S /GTS_PDFA1
+  /DestOutputProfile {{icc_PDFA}}
+  /OutputConditionIdentifier (sRGB)
+  /Info (sRGB IEC61966-2.1)
+  /RegistryName (http://www.color.org)
+>> /PUT pdfmark
+[{{Catalog}} <</OutputIntents [ {{OutputIntent_PDFA}} ]>> /PUT pdfmark
 """
-        pdfa_def_ps.write_text(pdfa_def_content)
+        )
 
         try:
-            # Run Ghostscript
             cmd = [
                 gs_path,
                 "-dPDFA=" + pdfa_def,
                 "-dBATCH",
                 "-dNOPAUSE",
+                "-dQUIET",
                 "-dNOOUTERSAVE",
-                "-dUseCIEColor",
+                f"--permit-file-read={icc}",
+                "-sColorConversionStrategy=RGB",
                 "-sProcessColorModel=DeviceRGB",
                 "-sDEVICE=pdfwrite",
                 "-dPDFACompatibilityPolicy=1",
+                "-dEmbedAllFonts=true",
+                "-dSubsetFonts=true",
                 f"-sOutputFile={output_path}",
+                str(pdfa_def_ps),
                 str(input_path),
             ]
 
