@@ -332,6 +332,513 @@ Sebelum memilih tool PDF, pertimbangkan:
 [Coba PDFGlide Sekarang →](/)
     `,
   },
+  {
+    slug: 'cara-tambah-watermark-pdf',
+    title: 'Cara Menambahkan Watermark ke PDF - Lindungi Dokumen Anda',
+    description: 'Panduan lengkap cara menambahkan watermark teks atau gambar ke file PDF untuk melindungi hak cipta dan mencegah plagiarisme.',
+    keywords: ['watermark pdf', 'tambah watermark', 'pdf watermark online', 'proteksi pdf', 'copyright pdf'],
+    publishedAt: '2024-01-20',
+    updatedAt: '2024-01-27',
+    author: 'PDFGlide Team',
+    category: 'Tutorial',
+    readTime: 4,
+    content: `
+## Mengapa Perlu Watermark?
+
+Watermark adalah cara efektif untuk:
+
+- **Melindungi hak cipta** dokumen Anda
+- **Mencegah penyalahgunaan** atau pembajakan
+- **Menandai status dokumen** (Draft, Confidential, dll)
+- **Branding** untuk dokumen profesional
+
+## Jenis Watermark
+
+### 1. Watermark Teks
+- Nama perusahaan atau individu
+- "CONFIDENTIAL", "DRAFT", "SAMPLE"
+- Tanggal atau nomor dokumen
+
+### 2. Watermark Gambar
+- Logo perusahaan
+- Tanda tangan digital
+- Stempel atau cap
+
+## Cara Menambahkan Watermark dengan PDFGlide
+
+### Langkah-langkah:
+
+1. Buka [PDF Watermark Tool](/pdf/watermark)
+2. Upload file PDF Anda
+3. Pilih jenis watermark:
+   - **Text**: Ketik teks watermark
+   - **Image**: Upload gambar logo
+4. Atur posisi watermark:
+   - Tengah (diagonal)
+   - Pojok kanan bawah
+   - Header/Footer
+5. Sesuaikan transparansi (opacity)
+6. Klik "Add Watermark"
+7. Download hasilnya
+
+## Tips Watermark Efektif
+
+### Untuk Dokumen Rahasia
+- Gunakan teks "CONFIDENTIAL" diagonal
+- Opacity 20-30% agar tidak mengganggu
+- Warna merah untuk visibilitas
+
+### Untuk Branding
+- Logo di pojok dengan opacity rendah
+- Konsisten di semua halaman
+- Ukuran proporsional
+
+### Untuk Draft
+- Teks "DRAFT" besar diagonal
+- Warna abu-abu terang
+- Mudah dibedakan dari versi final
+
+## Posisi Watermark yang Tepat
+
+| Tujuan | Posisi Rekomendasi | Opacity |
+|--------|-------------------|---------|
+| Copyright | Diagonal tengah | 15-25% |
+| Branding | Pojok kanan bawah | 30-40% |
+| Status dokumen | Diagonal tengah | 20-30% |
+| Nomor seri | Footer | 50-70% |
+
+[Tambah Watermark PDF Sekarang →](/pdf/watermark)
+    `,
+  },
+  {
+    slug: 'cara-rotate-pdf-online',
+    title: 'Cara Memutar Halaman PDF Online - Fix PDF Terbalik',
+    description: 'Tutorial cara memutar (rotate) halaman PDF yang terbalik atau miring. Putar 90, 180, atau 270 derajat secara online dan gratis.',
+    keywords: ['rotate pdf', 'putar pdf', 'pdf terbalik', 'fix pdf orientation', 'balik halaman pdf'],
+    publishedAt: '2024-01-18',
+    updatedAt: '2024-01-27',
+    author: 'PDFGlide Team',
+    category: 'Tutorial',
+    readTime: 3,
+    content: `
+## Mengapa PDF Bisa Terbalik?
+
+Beberapa penyebab umum:
+
+- **Scan dokumen** dengan orientasi salah
+- **Konversi dari foto** yang diambil secara portrait/landscape
+- **Export dari aplikasi** dengan setting berbeda
+- **Gabungan PDF** dengan orientasi tidak konsisten
+
+## Cara Memutar PDF dengan PDFGlide
+
+### Langkah Mudah:
+
+1. Buka [Rotate PDF Tool](/pdf/rotate)
+2. Upload file PDF
+3. Pilih halaman yang ingin diputar (atau semua halaman)
+4. Klik tombol rotasi:
+   - **↻ 90°** - Putar ke kanan
+   - **↺ 90°** - Putar ke kiri
+   - **180°** - Balik terbalik
+5. Preview hasilnya
+6. Download PDF yang sudah dirotasi
+
+## Opsi Rotasi
+
+### Rotate Semua Halaman
+Cocok jika seluruh dokumen memiliki orientasi yang salah.
+
+### Rotate Halaman Tertentu
+Pilih halaman spesifik yang perlu dirotasi (contoh: halaman 3, 5, 8-10).
+
+### Rotate Halaman Ganjil/Genap
+Berguna untuk dokumen scan dua sisi yang memiliki pola orientasi.
+
+## Tips Rotasi PDF
+
+1. **Preview dulu** sebelum download
+2. **Simpan backup** file original
+3. **Periksa semua halaman** untuk konsistensi
+4. **Gunakan auto-detect** jika tersedia
+
+## Contoh Penggunaan
+
+| Masalah | Solusi |
+|---------|--------|
+| Semua halaman terbalik 180° | Rotate All → 180° |
+| Halaman landscape jadi portrait | Rotate → 90° kanan |
+| Scan bolak-balik tidak konsisten | Rotate halaman genap → 180° |
+
+[Rotate PDF Sekarang →](/pdf/rotate)
+    `,
+  },
+  {
+    slug: 'cara-password-protect-pdf',
+    title: 'Cara Mengunci PDF dengan Password - Proteksi Dokumen',
+    description: 'Panduan cara menambahkan password ke file PDF untuk melindungi dokumen rahasia. Enkripsi PDF dengan password yang kuat.',
+    keywords: ['password pdf', 'protect pdf', 'enkripsi pdf', 'kunci pdf', 'amankan pdf'],
+    publishedAt: '2024-01-16',
+    updatedAt: '2024-01-27',
+    author: 'PDFGlide Team',
+    category: 'Tutorial',
+    readTime: 4,
+    content: `
+## Mengapa Perlu Password PDF?
+
+Proteksi password penting untuk:
+
+- **Dokumen rahasia** perusahaan
+- **Data pribadi** seperti KTP, slip gaji
+- **Kontrak dan perjanjian** hukum
+- **Laporan keuangan** sensitif
+- **Dokumen medis** pribadi
+
+## Jenis Proteksi PDF
+
+### 1. Open Password (User Password)
+- Diperlukan untuk **membuka** dokumen
+- Tanpa password, file tidak bisa dibaca sama sekali
+- Cocok untuk dokumen sangat rahasia
+
+### 2. Permission Password (Owner Password)
+- Membatasi aksi tertentu:
+  - Mencegah print
+  - Mencegah copy text
+  - Mencegah edit
+- File tetap bisa dibuka tapi dengan batasan
+
+## Cara Protect PDF dengan PDFGlide
+
+### Langkah-langkah:
+
+1. Buka [Protect PDF Tool](/pdf/protect)
+2. Upload file PDF
+3. Pilih jenis proteksi:
+   - **Open Password**: Masukkan password untuk membuka
+   - **Permissions**: Pilih batasan yang diinginkan
+4. Masukkan password yang kuat
+5. Konfirmasi password
+6. Klik "Protect PDF"
+7. Download file yang terproteksi
+
+## Tips Password yang Kuat
+
+### Karakteristik Password Kuat:
+- Minimal 8 karakter
+- Kombinasi huruf besar dan kecil
+- Minimal 1 angka
+- Minimal 1 karakter spesial (!@#$%^&*)
+
+### Contoh Password Kuat:
+- ✅ \`Dokumen@2024!\`
+- ✅ \`R4h4s14_Kantor\`
+- ❌ \`123456\` (terlalu lemah)
+- ❌ \`password\` (mudah ditebak)
+
+## Level Enkripsi
+
+| Level | Keamanan | Kompatibilitas |
+|-------|----------|----------------|
+| 40-bit RC4 | Rendah | PDF Reader lama |
+| 128-bit RC4 | Sedang | Sebagian besar reader |
+| 128-bit AES | Tinggi | Reader modern |
+| 256-bit AES | Sangat Tinggi | Reader terbaru |
+
+PDFGlide menggunakan **256-bit AES** untuk keamanan maksimal.
+
+## Penting untuk Diingat
+
+⚠️ **Simpan password di tempat aman** - Jika lupa, file tidak bisa dibuka
+⚠️ **Bagikan password secara terpisah** - Jangan kirim bersamaan dengan file
+⚠️ **Pertimbangkan dua faktor** - Password + channel berbeda untuk sharing
+
+[Protect PDF Sekarang →](/pdf/protect)
+    `,
+  },
+  {
+    slug: 'cara-unlock-pdf-lupa-password',
+    title: 'Cara Unlock PDF yang Terkunci - Buka Password PDF',
+    description: 'Panduan cara membuka file PDF yang terkunci password atau memiliki restricsi. Unlock PDF untuk edit, print, atau copy.',
+    keywords: ['unlock pdf', 'buka password pdf', 'remove pdf password', 'pdf terkunci', 'hapus password pdf'],
+    publishedAt: '2024-01-14',
+    updatedAt: '2024-01-27',
+    author: 'PDFGlide Team',
+    category: 'Tutorial',
+    readTime: 3,
+    content: `
+## Jenis Lock pada PDF
+
+### 1. Open Password Lock
+- File **tidak bisa dibuka** tanpa password
+- Memerlukan password asli untuk unlock
+- Tidak bisa di-bypass tanpa password
+
+### 2. Permission Lock (Restrictions)
+- File bisa dibuka tapi dengan **batasan**:
+  - Tidak bisa print
+  - Tidak bisa copy text
+  - Tidak bisa edit
+- **Bisa di-unlock** tanpa password owner
+
+## Cara Unlock PDF dengan PDFGlide
+
+### Untuk Permission Lock (Restrictions):
+
+1. Buka [Unlock PDF Tool](/pdf/unlock)
+2. Upload file PDF yang terkunci
+3. Klik "Unlock PDF"
+4. Download file tanpa restrictions
+
+### Untuk Open Password Lock:
+
+1. Upload file PDF
+2. **Masukkan password** yang Anda ketahui
+3. Klik "Unlock"
+4. Download file tanpa password
+
+## Apa yang Bisa Di-unlock?
+
+| Jenis Lock | Bisa Unlock? | Syarat |
+|------------|--------------|--------|
+| Print restriction | ✅ Ya | Tanpa password |
+| Copy restriction | ✅ Ya | Tanpa password |
+| Edit restriction | ✅ Ya | Tanpa password |
+| Open password | ✅ Ya | **Perlu password asli** |
+
+## Kapan Perlu Unlock PDF?
+
+- **Print dokumen** yang tidak bisa di-print
+- **Copy teks** untuk kutipan atau referensi
+- **Edit dokumen** yang perlu dimodifikasi
+- **Accessibility** untuk screen reader
+
+## Catatan Penting
+
+⚠️ **Gunakan untuk dokumen Anda sendiri** atau yang Anda miliki hak aksesnya
+⚠️ **Jangan unlock dokumen ilegal** atau melanggar hak cipta
+⚠️ **Open password** tetap memerlukan password asli
+
+## Alternatif Jika Lupa Password
+
+Jika Anda lupa password PDF Anda sendiri:
+
+1. Cek email/notes dimana password disimpan
+2. Coba password yang sering Anda gunakan
+3. Hubungi pembuat dokumen asli
+4. Buat ulang dokumen dari sumber asli
+
+[Unlock PDF Sekarang →](/pdf/unlock)
+    `,
+  },
+  {
+    slug: 'cara-sign-pdf-tanda-tangan-digital',
+    title: 'Cara Tanda Tangan PDF Online - Digital Signature Gratis',
+    description: 'Tutorial cara menambahkan tanda tangan digital ke dokumen PDF. Sign PDF online tanpa print, scan, atau software.',
+    keywords: ['sign pdf', 'tanda tangan pdf', 'digital signature', 'ttd elektronik', 'esign pdf'],
+    publishedAt: '2024-01-12',
+    updatedAt: '2024-01-27',
+    author: 'PDFGlide Team',
+    category: 'Tutorial',
+    readTime: 5,
+    content: `
+## Mengapa Tanda Tangan Digital?
+
+Keuntungan tanda tangan digital:
+
+- **Hemat waktu** - Tidak perlu print-sign-scan
+- **Ramah lingkungan** - Paperless
+- **Praktis** - Bisa dilakukan dari mana saja
+- **Aman** - Lebih sulit dipalsukan
+- **Legal** - Diakui secara hukum di banyak negara
+
+## Cara Sign PDF dengan PDFGlide
+
+### Metode 1: Gambar Tanda Tangan
+
+1. Buka [Sign PDF Tool](/pdf/sign)
+2. Upload dokumen PDF
+3. Klik "Draw Signature"
+4. Gambar tanda tangan dengan mouse/touchscreen
+5. Posisikan di lokasi yang tepat
+6. Resize jika perlu
+7. Download PDF yang sudah ditandatangani
+
+### Metode 2: Upload Gambar TTD
+
+1. Foto tanda tangan Anda di kertas putih
+2. Upload gambar tersebut
+3. Tool akan otomatis menghapus background
+4. Posisikan di dokumen
+
+### Metode 3: Ketik Nama
+
+1. Ketik nama Anda
+2. Pilih font signature style
+3. Sesuaikan ukuran dan warna
+4. Posisikan di dokumen
+
+## Tips Tanda Tangan Digital
+
+### Untuk Hasil Terbaik:
+- Gunakan **background putih** saat foto TTD
+- Pastikan **pencahayaan cukup**
+- Tanda tangan dengan **spidol hitam** tebal
+- **Crop** dengan tepat
+
+### Posisi yang Tepat:
+- Di atas garis tanda tangan
+- Jangan menutupi teks penting
+- Ukuran proporsional dengan dokumen
+
+## Legalitas Tanda Tangan Digital
+
+### Di Indonesia:
+- Diatur dalam **UU ITE** dan **PP PSTE**
+- Tanda tangan elektronik memiliki kekuatan hukum
+- Perlu memenuhi syarat tertentu untuk transaksi formal
+
+### Jenis Dokumen yang Cocok:
+- ✅ Kontrak internal perusahaan
+- ✅ Surat perjanjian sederhana
+- ✅ Form approval internal
+- ✅ Dokumen non-formal
+
+### Perlu Sertifikat Digital:
+- ❗ Dokumen legal formal
+- ❗ Transaksi keuangan besar
+- ❗ Dokumen pemerintah
+
+## Keamanan Tanda Tangan
+
+| Fitur | Keuntungan |
+|-------|------------|
+| Unique per dokumen | Tidak bisa dipindah ke dokumen lain |
+| Timestamp | Bukti waktu penandatanganan |
+| Visual signature | Mudah diverifikasi |
+| Audit trail | Rekam jejak digital |
+
+[Sign PDF Sekarang →](/pdf/sign)
+    `,
+  },
+  {
+    slug: 'tips-produktivitas-kerja-dengan-pdf',
+    title: '10 Tips Produktivitas Kerja dengan PDF Tools',
+    description: 'Tips dan trik meningkatkan produktivitas kerja dengan memanfaatkan PDF tools secara efektif. Hemat waktu dan kerja lebih efisien.',
+    keywords: ['tips produktivitas', 'pdf workflow', 'efisiensi kerja', 'tips pdf', 'productivity hacks'],
+    publishedAt: '2024-01-22',
+    updatedAt: '2024-01-27',
+    author: 'PDFGlide Team',
+    category: 'Tips',
+    readTime: 6,
+    content: `
+## 1. Batch Processing
+
+Jangan proses file satu per satu. Gunakan fitur batch untuk:
+
+- Merge multiple PDF sekaligus
+- Compress banyak file dalam satu proses
+- Convert folder gambar ke PDF
+
+**Hemat waktu: hingga 80%**
+
+## 2. Template Watermark
+
+Buat template watermark untuk branding:
+
+- Logo perusahaan dengan opacity tepat
+- "DRAFT" untuk dokumen internal
+- "CONFIDENTIAL" untuk dokumen rahasia
+
+Simpan setting dan gunakan berulang.
+
+## 3. Keyboard Shortcuts
+
+Pelajari shortcut untuk navigasi cepat:
+
+- **Ctrl+O**: Open file
+- **Ctrl+S**: Save/Download
+- **Ctrl+Z**: Undo
+- **Space**: Next page
+
+## 4. Kompresi Otomatis
+
+Set rule untuk auto-compress:
+
+- Email attachment > 10MB? Compress dulu
+- Upload ke cloud? Kompres level medium
+- Arsip jangka panjang? Compress minimal
+
+## 5. Naming Convention
+
+Gunakan format nama file konsisten:
+
+\`\`\`
+[YYYY-MM-DD]_[Project]_[Versi]_[Status].pdf
+Contoh: 2024-01-20_Proposal_v2_Final.pdf
+\`\`\`
+
+## 6. Quick Actions untuk Tugas Rutin
+
+Identifikasi tugas PDF yang sering dilakukan:
+
+| Tugas | Quick Action |
+|-------|-------------|
+| Report mingguan | Merge + Page numbers |
+| Invoice | Watermark + Protect |
+| Scan dokumen | OCR + Compress |
+
+## 7. Cloud Integration
+
+Hubungkan dengan cloud storage:
+
+- Download langsung dari Google Drive
+- Save otomatis ke Dropbox
+- Sync dengan OneDrive
+
+## 8. Mobile Workflow
+
+Manfaatkan akses mobile:
+
+- Review dokumen di perjalanan
+- Quick sign di handphone
+- Approve via tablet
+
+## 9. Version Control
+
+Kelola versi dokumen dengan baik:
+
+- Simpan versi original
+- Naming dengan versi (v1, v2, v3)
+- Archive versi lama
+
+## 10. Automation dengan Bookmark
+
+Bookmark tools yang sering dipakai:
+
+- Create folder "PDF Tools" di browser
+- Bookmark halaman specific tool
+- One-click access
+
+## Checklist Produktivitas Harian
+
+- [ ] Kompres file sebelum email
+- [ ] Backup dokumen penting
+- [ ] Organize folder mingguan
+- [ ] Review dan hapus file tidak perlu
+
+## Hasil yang Diharapkan
+
+Dengan menerapkan tips ini:
+
+- ⏱️ Hemat **2-3 jam per minggu**
+- 📁 Dokumen lebih **terorganisir**
+- 💾 Storage lebih **efisien**
+- 🔒 Keamanan dokumen **meningkat**
+
+[Mulai Produktif dengan PDFGlide →](/)
+    `,
+  },
 ];
 
 export function getBlogPost(slug: string): BlogPost | undefined {

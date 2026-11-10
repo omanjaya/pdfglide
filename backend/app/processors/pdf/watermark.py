@@ -57,14 +57,14 @@ class PDFWatermark(BaseProcessor):
                 total_pages = len(pdf.pages)
                 page_indices = self._parse_pages(pages, total_pages)
 
-                watermark = pikepdf.open(watermark_pdf)
-                watermark_page = watermark.pages[0]
+                with pikepdf.open(watermark_pdf) as watermark:
+                    watermark_page = watermark.pages[0]
 
-                for idx in page_indices:
-                    page = pdf.pages[idx]
-                    page.add_underlay(watermark_page)
+                    for idx in page_indices:
+                        page = pdf.pages[idx]
+                        page.add_underlay(watermark_page)
 
-                pdf.save(output_path)
+                    pdf.save(output_path)
 
             return output_path
 
@@ -129,14 +129,22 @@ class PDFWatermark(BaseProcessor):
         parts = pages.replace(" ", "").split(",")
 
         for part in parts:
-            if "-" in part:
-                start, end = part.split("-")
-                start_idx = int(start) - 1
-                end_idx = int(end)
-                indices.extend(range(start_idx, min(end_idx, total_pages)))
-            else:
-                idx = int(part) - 1
-                if 0 <= idx < total_pages:
-                    indices.append(idx)
+            try:
+                if "-" in part:
+                    range_parts = part.split("-", 1)
+                    if len(range_parts) != 2 or not range_parts[0] or not range_parts[1]:
+                        continue
+                    start_idx = int(range_parts[0]) - 1
+                    end_idx = int(range_parts[1])
+                    indices.extend(range(max(start_idx, 0), min(end_idx, total_pages)))
+                else:
+                    idx = int(part) - 1
+                    if 0 <= idx < total_pages:
+                        indices.append(idx)
+            except (ValueError, TypeError):
+                continue
+
+        if not indices:
+            raise ProcessingError(f"Invalid page specification: '{pages}'")
 
         return sorted(set(indices))

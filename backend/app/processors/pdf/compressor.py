@@ -16,19 +16,32 @@ from app.core.exceptions import ProcessingError
 class PDFCompressor(BaseProcessor):
     """Compress PDF to reduce file size with multiple optimization strategies."""
 
-    # Ghostscript quality presets (screen=72dpi, ebook=150dpi, printer=300dpi, prepress=300dpi)
+    # DPI settings per quality level
+    QUALITY_DPI = {
+        "extreme": 72,    # smallest, lowest quality
+        "low": 120,       # good for web/email
+        "medium": 150,    # balanced - good default
+        "high": 200,      # light compression, good quality
+    }
+
+    # DPI settings when preserve_quality is enabled (less aggressive)
+    QUALITY_DPI_PRESERVED = {
+        "extreme": 100,
+        "low": 150,
+        "medium": 200,
+        "high": 250,
+    }
+
+    # Ghostscript presets as fallback
     GS_PRESETS = {
-        "extreme": "/screen",      # 72 dpi - smallest, lowest quality
-        "low": "/ebook",           # 150 dpi - good for web
-        "medium": "/printer",      # 300 dpi - balanced
-        "high": "/prepress",       # 300 dpi - highest quality
+        "extreme": "/screen",
+        "low": "/ebook",
+        "medium": "/ebook",
+        "high": "/printer",
     }
 
     # DPI levels for target size - prioritize quality with fewer aggressive steps
     DPI_LEVELS = [300, 250, 220, 200, 180, 160, 144, 130, 120, 110, 100, 90, 80, 72]
-
-    # DPI boost for preserve_quality mode - use higher DPI for better visual quality
-    DPI_QUALITY_BOOST = 50  # Add this to DPI when preserving quality
 
     # Parallel processing settings
     PARALLEL_THRESHOLD_BYTES = int(os.getenv("PARALLEL_PROCESSING_THRESHOLD", 52428800))  # 50MB
@@ -85,35 +98,91 @@ class PDFCompressor(BaseProcessor):
                     preserve_quality, remove_metadata
                 )
             except Exception:
-                # Fallback to sequential processing if parallel fails
                 pass
 
-        # Standard compression mode with quality preservation
+        # Determine effective DPI
+        if not image_dpi:
+            if preserve_quality:
+                image_dpi = self.QUALITY_DPI_PRESERVED.get(quality, 200)
+            else:
+                image_dpi = self.QUALITY_DPI.get(quality, 150)
+
+        best_path = None
+        best_size = original_size
+        method = "original"
+
+        # Strategy 1: Ghostscript with explicit DPI (good for image-heavy PDFs)
         if gs_path and compress_images:
-            result_path = await self._compress_with_ghostscript(
-                file, output_path, quality, gs_path, image_dpi, grayscale,
-                preserve_quality=preserve_quality
-            )
+            try:
+                dpi_path = output_path.with_suffix('.dpi.pdf')
+                await self._compress_with_ghostscript(
+                    file, dpi_path, quality, gs_path, image_dpi, grayscale,
+                    preserve_quality=preserve_quality
+                )
+                await self._optimize_with_pikepdf(dpi_path, remove_metadata)
+                dpi_size = dpi_path.stat().st_size
+                if dpi_size < best_size:
+                    best_size = dpi_size
+                    best_path = dpi_path
+                    method = "ghostscript"
+                else:
+                    dpi_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        # Strategy 2: Ghostscript with PDFSETTINGS preset (good for mixed content)
+        if gs_path and compress_images:
+            try:
+                preset_path = output_path.with_suffix('.preset.pdf')
+                await self._compress_with_gs_preset(
+                    file, preset_path, quality, gs_path, grayscale
+                )
+                await self._optimize_with_pikepdf(preset_path, remove_metadata)
+                preset_size = preset_path.stat().st_size
+                if preset_size < best_size:
+                    if best_path and best_path.exists():
+                        best_path.unlink(missing_ok=True)
+                    best_size = preset_size
+                    best_path = preset_path
+                    method = "ghostscript_preset"
+                else:
+                    preset_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        # Strategy 3: pikepdf stream optimization (good for text/vector PDFs)
+        try:
+            pike_path = output_path.with_suffix('.pike.pdf')
+            await self._compress_with_pikepdf(file, pike_path, quality, remove_metadata)
+            pike_size = pike_path.stat().st_size
+            if pike_size < best_size:
+                if best_path and best_path.exists():
+                    best_path.unlink(missing_ok=True)
+                best_size = pike_size
+                best_path = pike_path
+                method = "pikepdf"
+            else:
+                pike_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        # Use best result or fall back to original
+        if best_path and best_path.exists():
+            shutil.move(str(best_path), str(output_path))
+            compressed_size = best_size
         else:
-            # Fallback to pikepdf
-            result_path = await self._compress_with_pikepdf(
-                file, output_path, quality, remove_metadata
-            )
-
-        # Post-process with pikepdf for additional optimization
-        await self._optimize_with_pikepdf(result_path, remove_metadata)
-
-        compressed_size = result_path.stat().st_size
+            shutil.copy2(str(file), str(output_path))
+            compressed_size = original_size
 
         stats = {
             "original_size": original_size,
             "compressed_size": compressed_size,
             "saved_bytes": original_size - compressed_size,
             "compression_ratio": round((1 - compressed_size / original_size) * 100, 1) if original_size > 0 else 0,
-            "method": "ghostscript" if gs_path and compress_images else "pikepdf",
+            "method": method,
         }
 
-        return result_path, stats
+        return output_path, stats
 
     async def _compress_parallel(
         self,
@@ -361,6 +430,59 @@ class PDFCompressor(BaseProcessor):
                 return path
         return None
 
+    async def _compress_with_gs_preset(
+        self,
+        input_path: Path,
+        output_path: Path,
+        quality: str,
+        gs_path: str,
+        grayscale: bool = False,
+    ) -> Path:
+        """Compress using Ghostscript PDFSETTINGS preset for general-purpose compression."""
+        preset = self.GS_PRESETS.get(quality, "/ebook")
+
+        cmd = [
+            gs_path,
+            "-sDEVICE=pdfwrite",
+            "-dCompatibilityLevel=1.4",
+            "-dNOPAUSE",
+            "-dQUIET",
+            "-dBATCH",
+            f"-dPDFSETTINGS={preset}",
+            "-dDetectDuplicateImages=true",
+            "-dCompressFonts=true",
+            "-dSubsetFonts=true",
+        ]
+
+        if grayscale:
+            cmd.extend([
+                "-sColorConversionStrategy=Gray",
+                "-dProcessColorModel=/DeviceGray",
+            ])
+
+        cmd.extend([
+            f"-sOutputFile={output_path}",
+            str(input_path),
+        ])
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                raise ProcessingError(f"Ghostscript preset compression failed")
+
+            if not output_path.exists():
+                raise ProcessingError("Output file not found")
+
+            return output_path
+        except FileNotFoundError:
+            raise ProcessingError("Ghostscript not found")
+
     async def _compress_with_ghostscript(
         self,
         input_path: Path,
@@ -371,10 +493,9 @@ class PDFCompressor(BaseProcessor):
         grayscale: bool = False,
         preserve_quality: bool = True,
     ) -> Path:
-        """Compress using Ghostscript with high-quality image preservation."""
+        """Compress using Ghostscript with explicit DPI control."""
 
-        # Base command - don't use PDFSETTINGS preset when we have custom DPI
-        # as it overrides our quality settings
+        # Base command
         cmd = [
             gs_path,
             "-sDEVICE=pdfwrite",
@@ -389,47 +510,34 @@ class PDFCompressor(BaseProcessor):
             "-dAutoRotatePages=/None",
         ]
 
-        # Calculate effective DPI - boost when preserving quality
-        # This results in less aggressive downsampling, preserving image quality
-        effective_dpi = custom_dpi
-        if custom_dpi and preserve_quality:
-            effective_dpi = min(custom_dpi + self.DPI_QUALITY_BOOST, 300)
+        effective_dpi = custom_dpi or self.QUALITY_DPI.get(quality, 150)
 
-        # When custom DPI is specified, use manual settings instead of presets
-        # (presets override our DPI settings)
-        if effective_dpi:
-            cmd.extend([
-                # Bicubic downsampling for smoother results (less artifacts)
-                "-dColorImageDownsampleType=/Bicubic",
-                "-dGrayImageDownsampleType=/Bicubic",
-                "-dMonoImageDownsampleType=/Subsample",
-                # DPI settings with threshold to force downsampling
-                "-dDownsampleColorImages=true",
-                f"-dColorImageResolution={effective_dpi}",
-                "-dColorImageDownsampleThreshold=1.0",  # Always downsample
-                "-dDownsampleGrayImages=true",
-                f"-dGrayImageResolution={effective_dpi}",
-                "-dGrayImageDownsampleThreshold=1.0",  # Always downsample
-                "-dDownsampleMonoImages=true",
-                f"-dMonoImageResolution={max(effective_dpi * 2, 200)}",
-                "-dMonoImageDownsampleThreshold=1.0",  # Always downsample
-                # Use DCTEncode (JPEG) for better compression
-                "-dAutoFilterColorImages=false",
-                "-dAutoFilterGrayImages=false",
-                "-dColorImageFilter=/DCTEncode",
-                "-dGrayImageFilter=/DCTEncode",
-            ])
+        # Always use explicit DPI settings for predictable compression
+        cmd.extend([
+            # Bicubic downsampling for smoother results
+            "-dColorImageDownsampleType=/Bicubic",
+            "-dGrayImageDownsampleType=/Bicubic",
+            "-dMonoImageDownsampleType=/Subsample",
+            # DPI settings - threshold 1.0 means always downsample if above target
+            "-dDownsampleColorImages=true",
+            f"-dColorImageResolution={effective_dpi}",
+            "-dColorImageDownsampleThreshold=1.0",
+            "-dDownsampleGrayImages=true",
+            f"-dGrayImageResolution={effective_dpi}",
+            "-dGrayImageDownsampleThreshold=1.0",
+            "-dDownsampleMonoImages=true",
+            f"-dMonoImageResolution={max(effective_dpi * 2, 200)}",
+            "-dMonoImageDownsampleThreshold=1.0",
+            # Use DCTEncode (JPEG) for better compression
+            "-dAutoFilterColorImages=false",
+            "-dAutoFilterGrayImages=false",
+            "-dColorImageFilter=/DCTEncode",
+            "-dGrayImageFilter=/DCTEncode",
+        ])
 
-            # Preserve colors for better quality
-            if preserve_quality and not grayscale:
-                cmd.append("-dColorConversionStrategy=/LeaveColorUnchanged")
-        else:
-            # No custom DPI - use presets
-            if preserve_quality:
-                preset = "/printer"  # Higher quality
-            else:
-                preset = self.GS_PRESETS.get(quality, "/ebook")  # More aggressive
-            cmd.append(f"-dPDFSETTINGS={preset}")
+        # Preserve colors when not converting to grayscale
+        if not grayscale:
+            cmd.append("-dColorConversionStrategy=/LeaveColorUnchanged")
 
         # Grayscale conversion
         if grayscale:

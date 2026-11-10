@@ -8,11 +8,12 @@ interface AdBannerProps {
   format?: 'auto' | 'rectangle' | 'horizontal' | 'vertical';
 }
 
-// Replace with your AdSense Publisher ID
-const ADSENSE_CLIENT_ID = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID || 'ca-pub-XXXXXXXXXXXXXXXX';
+const ADSENSE_CLIENT_ID = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID;
+const ADSENSE_ENABLED = !!ADSENSE_CLIENT_ID && !ADSENSE_CLIENT_ID.includes('XXXX');
 
 export function AdBanner({ slot, className = '', format = 'auto' }: AdBannerProps) {
   useEffect(() => {
+    if (!ADSENSE_ENABLED) return;
     try {
       // @ts-ignore
       (window.adsbygoogle = window.adsbygoogle || []).push({});
@@ -21,14 +22,9 @@ export function AdBanner({ slot, className = '', format = 'auto' }: AdBannerProp
     }
   }, []);
 
-  // Don't show ads in development
-  if (process.env.NODE_ENV === 'development') {
-    return (
-      <div className={`bg-gray-200 dark:bg-gray-700 rounded-lg p-4 text-center text-gray-500 dark:text-gray-400 ${className}`}>
-        <p className="text-sm">Ad Placeholder: {slot}</p>
-        <p className="text-xs mt-1">Ads will appear in production</p>
-      </div>
-    );
+  // Don't show ads in development or without valid client ID
+  if (process.env.NODE_ENV === 'development' || !ADSENSE_ENABLED) {
+    return null;
   }
 
   return (

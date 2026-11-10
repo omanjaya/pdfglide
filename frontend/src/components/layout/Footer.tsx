@@ -155,29 +155,34 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* About */}
+          {/* Company */}
           <div>
-            <h3 className="mb-3 font-semibold">PDFGlide</h3>
+            <h3 className="mb-3 font-semibold">Company</h3>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li className="flex items-center gap-2">
-                <span className="text-green-500">✓</span>
-                <span>100% Free</span>
+              <li>
+                <Link href="/about" className="hover:text-foreground transition-colors">
+                  About Us
+                </Link>
               </li>
-              <li className="flex items-center gap-2">
-                <span className="text-green-500">✓</span>
-                <span>No Registration</span>
+              <li>
+                <Link href="/contact" className="hover:text-foreground transition-colors">
+                  Contact
+                </Link>
               </li>
-              <li className="flex items-center gap-2">
-                <span className="text-green-500">✓</span>
-                <span>Secure & Private</span>
+              <li>
+                <Link href="/blog" className="hover:text-foreground transition-colors">
+                  Blog
+                </Link>
               </li>
-              <li className="flex items-center gap-2">
-                <span className="text-green-500">✓</span>
-                <span>Auto Delete (1 hour)</span>
+              <li>
+                <Link href="/privacy" className="hover:text-foreground transition-colors">
+                  Privacy Policy
+                </Link>
               </li>
-              <li className="flex items-center gap-2">
-                <span className="text-green-500">✓</span>
-                <span>Works on All Devices</span>
+              <li>
+                <Link href="/terms" className="hover:text-foreground transition-colors">
+                  Terms of Service
+                </Link>
               </li>
             </ul>
           </div>

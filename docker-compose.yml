@@ -2,7 +2,7 @@ services:
   # PostgreSQL Database (internal only - no public port)
   postgres:
     image: postgres:16-alpine
-    container_name: fileforge-db
+    container_name: pdfglide-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -20,7 +20,7 @@ services:
   # Redis for Queue and Caching (internal only - no public port)
   redis:
     image: redis:7-alpine
-    container_name: fileforge-redis
+    container_name: pdfglide-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redisSecure2026}
     volumes:
@@ -37,7 +37,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: fileforge-backend
+    container_name: pdfglide-backend
     restart: unless-stopped
     environment:
       - APP_ENV=${APP_ENV:-production}
@@ -99,7 +99,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: fileforge-worker-pdf-heavy
+    container_name: pdfglide-worker-pdf-heavy
     restart: unless-stopped
     command: celery -A app.core.celery_app worker -Q pdf-heavy -c 2 --loglevel=info --max-memory-per-child=2000000
     environment:
@@ -127,7 +127,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: fileforge-worker-pdf-light
+    container_name: pdfglide-worker-pdf-light
     restart: unless-stopped
     command: celery -A app.core.celery_app worker -Q pdf-light,default -c 8 --loglevel=info --max-memory-per-child=500000
     environment:
@@ -155,7 +155,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: fileforge-worker-image
+    container_name: pdfglide-worker-image
     restart: unless-stopped
     command: celery -A app.core.celery_app worker -Q image -c 4 --loglevel=info --max-memory-per-child=1000000
     environment:
@@ -185,7 +185,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: fileforge-worker-document
+    container_name: pdfglide-worker-document
     restart: unless-stopped
     command: celery -A app.core.celery_app worker -Q document -c 2 --loglevel=info --max-memory-per-child=1500000
     environment:
@@ -216,7 +216,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: fileforge-flower
+    container_name: pdfglide-flower
     restart: unless-stopped
     command: celery -A app.core.celery_app flower --port=5555
     environment:
@@ -235,7 +235,7 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=https://pdfglide.com
-    container_name: fileforge-frontend
+    container_name: pdfglide-frontend
     restart: unless-stopped
     environment:
       - NEXT_PUBLIC_API_URL=https://pdfglide.com
@@ -253,15 +253,13 @@ services:
   # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
-    container_name: fileforge-nginx
+    container_name: pdfglide-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "8880:80"
+      - "8443:443"
     volumes:
-      - ./nginx/nginx.ssl.conf:/etc/nginx/nginx.conf:ro
-      - ./certbot/conf:/etc/letsencrypt:ro
-      - ./certbot/www:/var/www/certbot:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - frontend
       - backend

@@ -345,10 +345,11 @@ export function generateBaseMetadata(): Metadata {
       },
     },
     verification: {
-      // Add these when you have the verification codes
-      // google: 'your-google-verification-code',
-      // yandex: 'your-yandex-verification-code',
-      // bing: 'your-bing-verification-code',
+      google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || '',
+      yandex: process.env.NEXT_PUBLIC_YANDEX_VERIFICATION || '',
+      other: {
+        'msvalidate.01': process.env.NEXT_PUBLIC_BING_VERIFICATION || '',
+      },
     },
   };
 }
