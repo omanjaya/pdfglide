@@ -19,12 +19,8 @@ def sample_docx(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_word_to_pdf(client: AsyncClient, sample_docx: Path):
-    """Test Word to PDF conversion."""
-    # Skip if LibreOffice not available
-    import shutil
-    if not shutil.which("soffice") and not Path("/Applications/LibreOffice.app").exists():
-        pytest.skip("LibreOffice not available")
+async def test_word_to_pdf(client: AsyncClient, sample_docx: Path, require_soffice):
+    """Test Word to PDF conversion (skipped when LibreOffice cannot run)."""
 
     with open(sample_docx, "rb") as f:
         response = await client.post(
@@ -32,11 +28,10 @@ async def test_word_to_pdf(client: AsyncClient, sample_docx: Path):
             files=[("file", ("test.docx", f, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))],
         )
 
-    # May fail if LibreOffice not installed, which is OK for CI
-    if response.status_code == 200:
-        data = response.json()
-        assert data["success"] is True
-        assert data["data"]["status"] == "completed"
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["status"] == "completed"
 
 
 @pytest.mark.asyncio

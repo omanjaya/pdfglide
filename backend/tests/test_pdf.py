@@ -32,7 +32,9 @@ async def test_merge_pdfs_requires_multiple_files(client: AsyncClient, sample_pd
             files=[("files", ("test.pdf", f, "application/pdf"))],
         )
     assert response.status_code == 400
-    assert "2 files required" in response.json()["detail"]
+    body = response.json()
+    assert body["success"] is False
+    assert "2 files" in body["error"]
 
 
 @pytest.mark.asyncio

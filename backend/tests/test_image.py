@@ -48,7 +48,9 @@ async def test_resize_requires_dimensions(client: AsyncClient, sample_image: Pat
         )
 
     assert response.status_code == 400
-    assert "width or height" in response.json()["detail"]
+    body = response.json()
+    assert body["success"] is False
+    assert "width or height" in body["error"]
 
 
 @pytest.mark.asyncio
@@ -78,4 +80,6 @@ async def test_convert_invalid_format(client: AsyncClient, sample_image: Path):
         )
 
     assert response.status_code == 400
-    assert "Invalid format" in response.json()["detail"]
+    body = response.json()
+    assert body["success"] is False
+    assert "Invalid format" in body["error"]
